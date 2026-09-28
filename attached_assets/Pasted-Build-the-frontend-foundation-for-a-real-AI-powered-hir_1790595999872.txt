@@ -1,0 +1,560 @@
+Build the frontend foundation for a real AI-powered hiring platform called "HiMe AI".
+
+Important: this is the FRONTEND ONLY phase.
+
+Do NOT build the backend.
+Do NOT use Supabase.
+Do NOT use Lovable Cloud database/auth as the application backend.
+Do NOT hardcode fake authentication logic.
+Do NOT create a second backend inside the frontend.
+
+The real backend will be developed separately using Laravel + PostgreSQL, and the AI service will be developed separately using Python + FastAPI.
+
+PROJECT GOAL
+
+HiMe AI is an AI-powered hiring platform connecting job seekers with companies.
+
+The platform should allow:
+
+1. Job seekers to create profiles and upload CVs.
+2. AI to analyze CVs and extract professional information.
+3. Companies to publish job vacancies.
+4. AI to match candidates with jobs.
+5. Candidates to see AI match scores and explanations.
+6. Companies to see ranked candidates according to AI match scores.
+7. Candidates to apply for jobs and track applications.
+
+TECHNOLOGY
+
+Use:
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- shadcn/ui
+- React Router
+- TanStack Query
+- Clean reusable component architecture
+
+Do not introduce unnecessary libraries.
+
+LANGUAGE AND LAYOUT
+
+The primary language is Arabic.
+
+The application must support:
+
+- Arabic
+- English
+- RTL
+- LTR
+
+Arabic should be the default language.
+
+Create a proper language switcher.
+
+The RTL/LTR direction must affect layout, navigation, cards, forms, tables, icons and spacing correctly.
+
+DESIGN DIRECTION
+
+Create a modern professional AI hiring platform.
+
+The design should communicate:
+
+- AI
+- Professional recruitment
+- Trust
+- Technology
+- Simplicity
+
+Use a clean modern SaaS-style interface.
+
+The UI must be responsive for:
+
+- Desktop
+- Tablet
+- Mobile
+
+Avoid excessive animations.
+
+Prioritize usability and clarity.
+
+PUBLIC PAGES
+
+Create:
+
+/
+/jobs
+/jobs/:id
+/login
+/register
+/about
+
+HOME PAGE
+
+The landing page should include:
+
+- Hero section
+- HiMe AI branding
+- Clear explanation of the platform
+- Candidate CTA
+- Company CTA
+- How AI matching works
+- AI matching workflow
+- Key features
+- Example match score
+- Trusted/professional visual language
+- Footer
+
+Do not use fake company logos.
+
+Use realistic demo content where necessary.
+
+AUTHENTICATION PAGES
+
+Create:
+
+/login
+/register
+
+Registration must allow selecting account type:
+
+- Job Seeker
+- Company
+
+Create reusable form components.
+
+Include:
+
+- loading states
+- validation states
+- error states
+- success states
+
+APPLICATION ROUTES
+
+Candidate:
+
+/seeker/dashboard
+/seeker/profile
+/seeker/cv
+/seeker/recommendations
+/seeker/applications
+
+Company:
+
+/company/dashboard
+/company/profile
+/company/jobs
+/company/jobs/new
+/company/jobs/:id
+/company/jobs/:id/candidates
+
+Admin:
+
+/admin/dashboard
+/admin/companies
+/admin/candidates
+/admin/jobs
+/admin/applications
+
+DASHBOARD DESIGN
+
+Create a shared dashboard shell with:
+
+- Sidebar
+- Top navigation
+- User menu
+- Notifications placeholder
+- Language switcher
+- Responsive mobile navigation
+
+Candidate dashboard should show:
+
+- Profile completion
+- CV status
+- AI analyzed status
+- Recommended jobs
+- Applications summary
+- Latest matches
+
+Company dashboard should show:
+
+- Active jobs
+- Applications
+- Candidates
+- Top matched candidates
+- Recent activity
+
+CANDIDATE PROFILE
+
+Create a professional profile page containing:
+
+- Personal information
+- Professional headline
+- Summary
+- Skills
+- Experience
+- Education
+- Projects
+- Certifications
+- Job preferences
+
+CV PAGE
+
+Create:
+
+- CV upload area
+- Drag and drop UI
+- PDF/DOCX support indicator
+- Upload progress
+- CV preview metadata
+- AI analysis status
+- Extracted profile preview
+
+The UI should support these states:
+
+- No CV
+- Uploading
+- Processing
+- Analyzed
+- Failed
+
+AI PROFILE RESULT
+
+Create a beautiful AI analysis result component.
+
+Display:
+
+- Extracted skills
+- Experience
+- Education
+- Projects
+- Certifications
+- Professional summary
+
+Do NOT claim that AI results are always correct.
+
+Use language such as:
+
+"AI extracted profile"
+"Review extracted information"
+
+JOB LISTING
+
+Create:
+
+/jobs
+
+Include:
+
+- Search
+- Location filter
+- Industry filter
+- Contract type
+- Experience level
+- Skills
+- Sorting
+
+Create reusable job cards.
+
+JOB DETAILS
+
+Create a professional job details page showing:
+
+- Job title
+- Company
+- Location
+- Contract type
+- Experience
+- Required skills
+- Preferred skills
+- Education
+- Job description
+- Apply button
+
+For authenticated candidates, show application status.
+
+AI RECOMMENDATIONS
+
+Create:
+
+/seeker/recommendations
+
+Each recommended job card should display:
+
+AI Match Score
+Example: 87%
+
+Then:
+
+Skills Match
+Experience Match
+Education Match
+Semantic Match
+
+Also show:
+
+Matched Skills
+Missing Skills
+
+Use a visual score component.
+
+APPLICATIONS
+
+Create:
+
+/seeker/applications
+
+Display:
+
+- Job
+- Company
+- Applied date
+- Status
+- Match score
+
+Statuses:
+
+Applied
+Reviewing
+Shortlisted
+Interview
+Rejected
+Accepted
+
+COMPANY JOB CREATION
+
+Create:
+
+/company/jobs/new
+
+Form fields:
+
+- Title
+- Description
+- Industry
+- Location
+- Contract Type
+- Experience Level
+- Education
+- Required Skills
+- Preferred Skills
+- Salary (optional)
+- Deadline
+
+The form must be easy to use.
+
+COMPANY CANDIDATE RANKING
+
+Create:
+
+/company/jobs/:id/candidates
+
+Display candidates ranked by AI Match Score.
+
+Each candidate should show:
+
+- Name
+- Headline
+- Match score
+- Skills match
+- Experience match
+- Education match
+- Matched skills
+- Missing skills
+- Application status
+
+Create filters and sorting.
+
+CANDIDATE MATCH DETAILS
+
+Create a detailed candidate match page.
+
+Show:
+
+Overall AI Match Score
+
+Breakdown:
+
+Skills
+Experience
+Education
+Projects
+Certifications
+Semantic similarity
+
+Then:
+
+Matched Skills
+Missing Skills
+Relevant Experience
+Relevant Projects
+
+Include a clear disclaimer that the AI match score is decision support and not a final hiring decision.
+
+ADMIN
+
+Create a clean minimal admin dashboard.
+
+Show:
+
+- Number of candidates
+- Number of companies
+- Number of jobs
+- Number of applications
+
+Create basic management tables.
+
+DATA ARCHITECTURE
+
+The frontend must NOT directly depend on mock data throughout the UI.
+
+Create a clean API abstraction layer:
+
+src/
+services/
+api/
+types/
+hooks/
+components/
+pages/
+layouts/
+i18n/
+lib/
+
+Create an ApiClient abstraction.
+
+Use:
+
+VITE_API_BASE_URL
+
+Do not hardcode the backend URL.
+
+All backend communication must later go through the API layer.
+
+Until the real backend is connected, use typed local demo fixtures only through the service layer.
+
+Create interfaces/types for:
+
+User
+CandidateProfile
+Company
+Job
+Skill
+Experience
+Education
+Project
+Certification
+Application
+MatchResult
+Notification
+
+API CONTRACT
+
+Prepare frontend methods for:
+
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/logout
+GET /api/v1/me
+
+GET /api/v1/jobs
+GET /api/v1/jobs/{id}
+
+GET /api/v1/seeker/profile
+PUT /api/v1/seeker/profile
+POST /api/v1/seeker/cv
+
+GET /api/v1/seeker/recommendations
+GET /api/v1/seeker/applications
+
+POST /api/v1/jobs
+PUT /api/v1/jobs/{id}
+DELETE /api/v1/jobs/{id}
+
+GET /api/v1/company/jobs
+GET /api/v1/company/jobs/{id}/candidates
+
+POST /api/v1/jobs/{id}/apply
+
+PATCH /api/v1/applications/{id}/status
+
+ERROR HANDLING
+
+Every data-driven page must support:
+
+- Loading
+- Empty
+- Error
+- Success
+
+Do not leave blank screens.
+
+SECURITY
+
+Never expose secrets in the frontend.
+
+Do not place API secrets in source code.
+
+Do not use service credentials in VITE variables.
+
+ACCESSIBILITY
+
+Use:
+
+- semantic HTML
+- keyboard navigation
+- accessible forms
+- sufficient text contrast
+- visible focus states
+- aria labels where necessary
+
+QUALITY
+
+Create reusable components rather than duplicating UI.
+
+Do not create huge monolithic page components.
+
+Avoid unnecessary abstraction.
+
+Before finishing:
+
+1. Run the application.
+2. Check all routes.
+3. Check Arabic RTL.
+4. Check English LTR.
+5. Check mobile layout.
+6. Check forms.
+7. Check loading/error/empty states.
+8. Run frontend tests if available.
+9. Run production build.
+10. Fix all build errors.
+
+DOCUMENTATION
+
+Create:
+
+docs/frontend-architecture.md
+
+Document:
+
+- project structure
+- routing
+- components
+- API abstraction
+- types
+- i18n
+- environment variables
+
+IMPORTANT
+
+This is Phase 1 only.
+
+Do not implement advanced AI logic.
+Do not implement the Laravel backend.
+Do not implement database logic.
+Do not implement Supabase.
+
+The final result of this phase must be a polished frontend foundation that is ready to connect to the Laravel REST API.

@@ -1,0 +1,1 @@
+export { DashboardLayout } from '@/components/app-kit';
