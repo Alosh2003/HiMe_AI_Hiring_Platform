@@ -10,6 +10,8 @@ The app is organized around a small, replaceable service boundary:
 - `src/components/app-kit.tsx` contains the shared navigation, dashboard shell, cards, score visualizations, field primitives, and data states.
 - `src/layouts` re-exports shared dashboard layouts.
 - `src/pages/Pages.tsx` contains route-level compositions. Components never define fixture objects.
+- `src/pages/TrustFlows.tsx` owns the hardened sign-in, registration, CV upload, and job application states.
+- `src/services/validation.ts` contains pure validation rules shared by the trust-flow UI and automated tests.
 - `src/hooks/use-demo.ts` provides a small async loading/error/retry boundary for demo calls.
 
 ## Routing
@@ -39,3 +41,16 @@ Arabic is the default. `LanguageProvider` updates `document.documentElement.lang
 ## Environment
 
 Set `VITE_API_BASE_URL` to the future API origin or path. The default is `/api/v1` for local integration. This frontend does not implement auth persistence, a database, Supabase, or backend credentials.
+
+## Trust-flow verification
+
+Run `pnpm --filter @workspace/hime-ai run test` to execute the frontend checks. The suite covers:
+
+- Arabic RTL and English LTR switching in public and dashboard shells.
+- Every public, seeker, company, and admin route rendering at 390px and 1440px viewport widths.
+- Login and registration validation, role selection, consent, and explicit success feedback.
+- CV rejection for unsupported or oversized files, upload progress, and completion feedback.
+- Job application success and service-error feedback.
+- Company candidate ranking and sorting surface.
+
+The test suite uses the current typed `demoApi` service boundary, so it can remain in place when the Laravel REST implementation replaces the demo service.

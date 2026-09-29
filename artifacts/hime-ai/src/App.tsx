@@ -6,7 +6,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { LanguageProvider } from '@/i18n';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import { AboutPage, AdminApplicationsPage, AdminCandidatesPage, AdminCompaniesPage, AdminDashboardPage, AdminJobsPage, ApplicationsPage, CandidatesPage, CompanyDashboardPage, CompanyJobDetailPage, CompanyJobsPage, CompanyProfilePage, HomePage, JobDetailsPage, JobsPage, LoginPage, NewJobPage, RecommendationsPage, RegisterPage, SeekerCvPage, SeekerDashboardPage, SeekerProfilePage } from '@/pages/Pages';
+import { AboutPage, AdminApplicationsPage, AdminCandidatesPage, AdminCompaniesPage, AdminDashboardPage, AdminJobsPage, ApplicationsPage, CandidatesPage, CompanyDashboardPage, CompanyJobDetailPage, CompanyJobsPage, CompanyProfilePage, HomePage, JobsPage, NewJobPage, RecommendationsPage, SeekerDashboardPage, SeekerProfilePage } from '@/pages/Pages';
+import { JobDetailsPage, LoginPage, RegisterPage, SeekerCvPage } from '@/pages/TrustFlows';
 
 const queryClient = new QueryClient();
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
