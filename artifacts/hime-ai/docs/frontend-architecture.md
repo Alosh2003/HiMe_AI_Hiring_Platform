@@ -18,6 +18,16 @@ The app is organized around a small, replaceable service boundary:
 
 Wouter uses one flat top-level `Switch` in `src/App.tsx`. Public routes use `PublicNav`; seeker and company routes use `DashboardLayout`. Dynamic routes are placed before their broader siblings, e.g. candidate details before the company job list.
 
+## Product workflows
+
+The role journeys are intentionally connected instead of being isolated dashboards:
+
+- Candidate: register or sign in → candidate dashboard → complete profile → review CV → inspect explainable recommendations → open a job → apply → follow the application.
+- Company: register or sign in → company dashboard → complete company profile → publish a job → review ranked candidates → open a candidate review → shortlist or start a conversation.
+- Admin: sign in → platform dashboard → verify companies → review jobs → monitor applications and reports → manage admin permissions and notifications.
+
+`WorkflowGuide` renders these sequences inside each role dashboard. Role-specific auth destinations, dashboard navigation, company candidate review, and admin navigation all use the same route graph. The app remains frontend-only and these transitions use typed demo services until the REST services are connected.
+
 ## Components and states
 
 The visual system uses a deep teal / warm saffron palette: teal communicates capability and trust, while saffron gives important actions a human signal. `LoadingState`, `FeedbackState`, empty-search states, inline success feedback, and upload progress are available to every data-driven surface.

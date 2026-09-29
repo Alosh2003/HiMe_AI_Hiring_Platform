@@ -57,6 +57,7 @@ export function LoginPage() {
   const [values, setValues] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<ReturnType<typeof validateLogin>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [role, setRole] = useState<'seeker' | 'company' | 'admin'>('seeker');
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -74,15 +75,17 @@ export function LoginPage() {
           <label className="flex items-center gap-2"><input type="checkbox" data-testid="checkbox-remember" /> تذكرني</label>
           <button type="button" className="font-bold text-primary" data-testid="button-forgot-password">نسيت كلمة المرور؟</button>
         </div>
+        <div><p className="mb-2 text-xs font-semibold">مساحة الدخول التجريبية</p><div className="grid grid-cols-3 gap-2">{[['seeker', 'باحث'], ['company', 'شركة'], ['admin', 'إدارة']].map(([value, label]) => <button type="button" key={value} onClick={() => setRole(value as 'seeker' | 'company' | 'admin')} className={`rounded-lg border p-2 text-xs font-semibold ${role === value ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={role === value} data-testid={`button-login-role-${value}`}>{label}</button>)}</div></div>
         <Button type="submit" className="w-full" data-testid="button-submit-login">{submitted ? 'تم التحقق من البيانات' : t('signIn')}</Button>
-        {submitted && <p className="rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-login-success" role="status">تم التحقق من البيانات. سيتم ربط الدخول بواجهة الخادم عند جاهزية API.</p>}
+        {submitted && <div className="space-y-3 rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-login-success" role="status"><p>تم التحقق من البيانات. مساحة العمل جاهزة.</p><Link href={role === 'company' ? '/company/dashboard' : role === 'admin' ? '/admin/dashboard' : '/seeker/dashboard'} className="inline-block rounded-md bg-primary px-3 py-2 font-bold text-primary-foreground" data-testid="link-login-destination">الانتقال إلى لوحة التحكم</Link></div>}
       </form>
     </AuthFrame>
   );
 }
 
 export function RegisterPage() {
-  const [values, setValues] = useState({ name: '', email: '', password: '', role: 'seeker' as 'seeker' | 'company', termsAccepted: false });
+  const initialRole = new URLSearchParams(window.location.search).get('role') === 'company' ? 'company' : 'seeker';
+  const [values, setValues] = useState({ name: '', email: '', password: '', role: initialRole as 'seeker' | 'company', termsAccepted: false });
   const [errors, setErrors] = useState<ReturnType<typeof validateRegistration>>({});
   const [done, setDone] = useState(false);
 
@@ -112,7 +115,7 @@ export function RegisterPage() {
         </label>
         {errors.termsAccepted && <p className="text-xs text-destructive" role="alert" data-testid="error-register-terms">{errors.termsAccepted}</p>}
         <Button type="submit" className="w-full" data-testid="button-submit-register">{done ? 'تم تجهيز طلبك' : 'إنشاء الحساب'}</Button>
-        {done && <p className="rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-register-success" role="status">تم التحقق من البيانات. واجهة التسجيل جاهزة للربط مع API.</p>}
+        {done && <div className="space-y-3 rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-register-success" role="status"><p>تم التحقق من البيانات. مساحة العمل جاهزة للبدء.</p><Link href={values.role === 'company' ? '/company/dashboard' : '/seeker/dashboard'} className="inline-block rounded-md bg-primary px-3 py-2 font-bold text-primary-foreground" data-testid="link-register-destination">الانتقال إلى لوحة التحكم</Link></div>}
       </form>
     </AuthFrame>
   );

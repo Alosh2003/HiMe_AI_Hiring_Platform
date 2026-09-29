@@ -22,6 +22,7 @@ const criticalRoutes = [
   '/company/jobs/new',
   '/company/jobs/j-1',
   '/company/jobs/j-1/candidates',
+  '/company/jobs/j-1/candidates/u-8',
   '/admin/dashboard',
   '/admin/companies',
   '/admin/candidates',
@@ -72,6 +73,41 @@ describe('language direction', () => {
     fireEvent.click(screen.getByTestId('button-language'));
     await waitFor(() => expect(document.documentElement.dir).toBe('ltr'));
     expect(screen.getByTestId('button-open-sidebar')).toBeInTheDocument();
+  });
+});
+
+describe('role workflow connections', () => {
+  it('shows the candidate, company, and admin workflow guides', async () => {
+    renderAt('/seeker/dashboard');
+    expect(await screen.findByTestId('workflow-guide-seeker')).toBeInTheDocument();
+    cleanup();
+
+    renderAt('/company/dashboard');
+    expect(await screen.findByTestId('workflow-guide-company')).toBeInTheDocument();
+    cleanup();
+
+    renderAt('/admin/dashboard');
+    expect(await screen.findByTestId('workflow-guide-admin')).toBeInTheDocument();
+  });
+
+  it('connects candidate ranking to a candidate review page', async () => {
+    renderAt('/company/jobs/j-1/candidates');
+    const reviewLink = await screen.findByTestId('link-candidate-u-8');
+    expect(reviewLink).toHaveAttribute('href', '/company/jobs/j-1/candidates/u-8');
+
+    fireEvent.click(reviewLink);
+    expect(await screen.findByTestId('button-shortlist-candidate')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-shortlist-candidate'));
+    expect(screen.getByTestId('status-candidate-decision')).toBeInTheDocument();
+  });
+
+  it('offers role-specific destinations after login', async () => {
+    renderAt('/login');
+    fireEvent.change(screen.getByTestId('input-login-email'), { target: { value: 'admin@example.com' } });
+    fireEvent.change(screen.getByTestId('input-login-password'), { target: { value: 'correct-password' } });
+    fireEvent.click(screen.getByTestId('button-login-role-admin'));
+    fireEvent.click(screen.getByTestId('button-submit-login'));
+    expect(await screen.findByTestId('link-login-destination')).toHaveAttribute('href', '/admin/dashboard');
   });
 });
 
