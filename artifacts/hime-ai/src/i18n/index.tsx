@@ -1,0 +1,18 @@
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+
+export type Language = 'ar' | 'en';
+const copy = {
+  ar: { brand: 'HiMe AI', navJobs: 'استكشف الوظائف', navAbout: 'عن المنصة', signIn: 'تسجيل الدخول', start: 'ابدأ الآن', language: 'English', homeEyebrow: 'قرار مهني أوضح، يبدأ من هنا', homeTitle: 'وظيفتك القادمة ليست صدفة.', homeBody: 'نربط طموحك بالفرصة المناسبة عبر مطابقة ذكية تشرح لك لماذا تتوافق — وتترك القرار لك.', seeker: 'أنا أبحث عن وظيفة', company: 'أبحث عن مواهب', how: 'كيف تعمل HiMe AI؟', features: 'كل ما تحتاجه لخطوتك التالية', jobs: 'وظائف مقترحة', applications: 'طلبات التقديم', profile: 'الملف المهني', dashboard: 'لوحة التحكم', recommendations: 'التوصيات الذكية', cv: 'السيرة الذاتية', logout: 'تسجيل الخروج', search: 'ابحث عن مسمى وظيفي أو مهارة', viewAll: 'عرض الكل', match: 'تطابق ذكي', apply: 'تقدّم للوظيفة', save: 'حفظ التغييرات', cancel: 'إلغاء', loading: 'جارٍ التحميل…', empty: 'لا توجد نتائج بعد', retry: 'حاول مرة أخرى', decision: 'النتيجة دعم لاتخاذ القرار وليست قرار توظيف نهائي.', review: 'راجع المعلومات المستخرجة قبل اعتمادها.' },
+  en: { brand: 'HiMe AI', navJobs: 'Explore jobs', navAbout: 'About', signIn: 'Sign in', start: 'Get started', language: 'العربية', homeEyebrow: 'A clearer career decision starts here', homeTitle: 'Your next role is not a coincidence.', homeBody: 'We connect your ambition to the right opportunity with explainable matching that shows why you fit — and leaves the decision with you.', seeker: 'I am looking for a job', company: 'I am hiring talent', how: 'How HiMe AI works', features: 'Everything for your next move', jobs: 'Recommended jobs', applications: 'Applications', profile: 'Professional profile', dashboard: 'Dashboard', recommendations: 'AI recommendations', cv: 'CV & AI profile', logout: 'Sign out', search: 'Search by role or skill', viewAll: 'View all', match: 'AI match', apply: 'Apply now', save: 'Save changes', cancel: 'Cancel', loading: 'Loading…', empty: 'Nothing here yet', retry: 'Try again', decision: 'Match scores support decisions; they are not a final hiring decision.', review: 'Review extracted information before accepting it.' },
+} as const;
+type CopyKey = keyof typeof copy.ar;
+interface LanguageContext { lang: Language; dir: 'rtl' | 'ltr'; t: (key: CopyKey) => string; toggle: () => void; }
+const LangContext = createContext<LanguageContext | null>(null);
+export function LanguageProvider({ children }: { children: ReactNode }) {
+  const [lang, setLang] = useState<Language>('ar');
+  const dir: 'rtl' | 'ltr' = lang === 'ar' ? 'rtl' : 'ltr';
+  useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = dir; }, [lang, dir]);
+  const value = useMemo(() => ({ lang, dir, t: (key: CopyKey) => copy[lang][key], toggle: () => setLang((current) => current === 'ar' ? 'en' : 'ar') }), [lang, dir]);
+  return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
+}
+export function useLanguage() { const context = useContext(LangContext); if (!context) throw new Error('useLanguage must be used inside LanguageProvider'); return context; }

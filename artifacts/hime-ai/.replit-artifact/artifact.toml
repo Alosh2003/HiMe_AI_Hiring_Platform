@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "HiMe AI"
+description = "An Arabic-first AI hiring platform frontend that helps job seekers discover better opportunities and helps companies find strong candidate matches, ready to connect to a Laravel REST API."
+version = "1.0.0"
+id = "artifacts/hime-ai"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21664
+
+[services.development]
+run = "pnpm --filter @workspace/hime-ai run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/hime-ai", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/hime-ai/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21664"
+BASE_PATH = "/"

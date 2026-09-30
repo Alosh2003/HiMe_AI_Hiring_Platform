@@ -1,0 +1,1 @@
+export { RoleShell as DashboardLayout } from '@/components/role-shell';
