@@ -7,7 +7,7 @@ import NotFound from '@/pages/not-found';
 import { LanguageProvider } from '@/i18n';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/contexts/auth-context';
-import { ProtectedRoute } from '@/components/protected-route';
+import { ProtectedRoute, GuestRoute } from '@/components/protected-route';
 import {
   AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
   CompanyJobsPage, HomePage, JobsPage, NewJobPage, RecommendationsPage
@@ -34,8 +34,8 @@ function Router() {
         <Route path="/" component={HomePage} />
         <Route path="/jobs" component={JobsPage} />
         <Route path="/jobs/:id" component={JobDetailsPage} />
-        <Route path="/login" component={LoginPage} />
-        <Route path="/register" component={RegisterPage} />
+        <Route path="/login"><GuestRoute><LoginPage /></GuestRoute></Route>
+        <Route path="/register"><GuestRoute><RegisterPage /></GuestRoute></Route>
         <Route path="/about" component={AboutPage} />
 
         {/* Seeker routes */}

@@ -77,7 +77,9 @@ export async function listJobs(filters?: { search?: string; location?: string; i
     if (filters?.industry) params.set('industry', filters.industry);
     if (filters?.contract) params.set('contract', filters.contract);
     const query = params.toString();
-    return apiRequest<Job[]>(`/jobs${query ? `?${query}` : ''}`);
+    // GET /api/jobs returns { jobs, pagination }; every caller wants the list.
+    const res = await apiRequest<Job[] | { jobs: Job[] }>(`/jobs${query ? `?${query}` : ''}`);
+    return Array.isArray(res) ? res : res.jobs ?? [];
   }
   await wait();
   const q = filters?.search?.toLowerCase() || '';
@@ -164,8 +166,9 @@ export async function apply(jobId: string) {
 
 export async function getCompanyJobs() {
   if (hasApi()) {
-    const company = await apiRequest<Company>('/companies/me/profile');
-    return apiRequest<Job[]>(`/companies/${company.id}/jobs`);
+    // /companies/me/jobs resolves the company from the session, saving a
+    // round trip and avoiding a 404 when the id isn't known up front.
+    return apiRequest<Job[]>('/companies/me/jobs');
   }
   await wait();
   return demoJobs.filter((job) => job.companyId === demoCompany.id);

@@ -41,14 +41,14 @@ function PublicFooter() {
           <p className="mb-4 text-xs font-bold uppercase tracking-widest text-[#f2c66d]">للباحثين</p>
           <div className="space-y-3 text-sm text-sidebar-foreground/70">
             <Link href="/register" className="block hover:text-white" data-testid="link-footer-seeker">{t('seeker')}</Link>
-            <Link href="/seeker/cv" className="block hover:text-white" data-testid="link-footer-cv">{t('cv')}</Link>
+            <Link href="/register?role=seeker" className="block hover:text-white" data-testid="link-footer-cv">{t('cv')}</Link>
           </div>
         </div>
         <div>
           <p className="mb-4 text-xs font-bold uppercase tracking-widest text-[#f2c66d]">للشركات</p>
           <div className="space-y-3 text-sm text-sidebar-foreground/70">
-            <Link href="/register" className="block hover:text-white" data-testid="link-footer-company">{t('company')}</Link>
-            <Link href="/company/jobs/new" className="block hover:text-white" data-testid="link-footer-post">أضف وظيفة</Link>
+            <Link href="/register?role=company" className="block hover:text-white" data-testid="link-footer-company">{t('company')}</Link>
+            <Link href="/register?role=company" className="block hover:text-white" data-testid="link-footer-post">أضف وظيفة</Link>
           </div>
         </div>
       </div>
@@ -901,7 +901,7 @@ export function CandidatesPage() {
                   {candidate.name.slice(0, 2)}
                 </div>
                 <div>
-                  <Link href={`/company/jobs/${id || 'j-1'}/candidates/${candidate.id}`} className="font-bold hover:text-primary" data-testid={`link-candidate-${candidate.id}`}>
+                  <Link href={`/company/jobs/${id}/candidates/${candidate.id}`} className="font-bold hover:text-primary" data-testid={`link-candidate-${candidate.id}`}>
                     {candidate.name}
                   </Link>
                   <p className="mt-1 text-xs text-muted-foreground">{candidate.headline}</p>
@@ -937,7 +937,7 @@ export function CandidatesPage() {
                     <span key={skill.id} className="rounded bg-muted px-2 py-1 text-[10px]">{skill.name}</span>
                   ))}
                 </div>
-                <Link href={`/company/jobs/${id || 'j-1'}/candidates/${candidate.id}`} className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid={`link-review-candidate-${candidate.id}`}>
+                <Link href={`/company/jobs/${id}/candidates/${candidate.id}`} className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid={`link-review-candidate-${candidate.id}`}>
                   مراجعة الملف <ArrowUpLeft className="h-3.5 w-3.5" />
                 </Link>
               </div>

@@ -104,19 +104,31 @@ export const handlers = [
     await delay(10);
     return HttpResponse.json({ token: authToken, user: authUser });
   }),
-  http.post('*/api/auth/register', async () => {
+  http.post('*/api/auth/register', async ({ request }) => {
     await delay(10);
-    return HttpResponse.json({ token: authToken, user: authUser }, { status: 201 });
+    // Echo back the role the visitor actually chose, like the real API does,
+    // otherwise a company signup would land on the seeker dashboard.
+    const body = (await request.json()) as { name?: string; email?: string; role?: 'seeker' | 'company' };
+    const role = body.role === 'company' ? 'company' : 'seeker';
+    return HttpResponse.json(
+      {
+        token: authToken,
+        user: { ...authUser, id: role === 'company' ? TEST_IDS.company1 : TEST_IDS.user1, name: body.name ?? authUser.name, email: body.email ?? authUser.email, role },
+      },
+      { status: 201 },
+    );
   }),
   http.get('*/api/auth/me', async () => {
     await delay(10);
     return HttpResponse.json(authUser);
   }),
 
-  // Jobs
+  // Jobs — the live API wraps the list in { jobs, pagination } after the
+  // pagination change. Mirroring that here is what lets the route matrix
+  // catch response-shape bugs like the admin/jobs crash.
   http.get('*/api/jobs', async () => {
     await delay(10);
-    return HttpResponse.json([job]);
+    return HttpResponse.json({ jobs: [job], pagination: { page: 1, limit: 20, total: 1, totalPages: 1, hasNext: false } });
   }),
   http.get(`*/api/jobs/${TEST_IDS.job1}`, async () => {
     await delay(10);
@@ -147,6 +159,14 @@ export const handlers = [
   http.get('*/api/companies/me/profile', async () => {
     await delay(10);
     return HttpResponse.json(company);
+  }),
+  http.get('*/api/companies/me/jobs', async () => {
+    await delay(10);
+    return HttpResponse.json([job]);
+  }),
+  http.get(`*/api/companies/${TEST_IDS.company1}/jobs`, async () => {
+    await delay(10);
+    return HttpResponse.json([job]);
   }),
 
   // Candidates

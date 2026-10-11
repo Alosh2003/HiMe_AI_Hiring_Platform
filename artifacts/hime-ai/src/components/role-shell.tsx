@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { Bell, BriefcaseBusiness, Building2, FileText, LayoutDashboard, LogOut, Menu, Plus, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
 import { LanguageSwitch, Logo } from '@/components/app-kit';
 import { useLanguage } from '@/i18n';
+import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
 
 export type PortalRole = 'seeker' | 'company' | 'admin';
@@ -48,9 +49,18 @@ const roleContent = {
 
 export function RoleShell({ role, children }: { role: PortalRole; children: ReactNode }) {
   const [location] = useLocation();
+  const [, navigate] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { t } = useLanguage();
+  const { logout } = useAuth();
   const content = roleContent[role];
+
+  // Clear the session before navigating, otherwise the auth guard would
+  // bounce the user straight back into the dashboard.
+  const signOut = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -83,7 +93,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
         </nav>
         <div className="absolute inset-x-4 bottom-5 space-y-1 border-t border-sidebar-border pt-4">
           <Link href={role === 'admin' ? '/admin/profile' : role === 'company' ? '/company/profile' : '/seeker/profile'} className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent" data-testid="link-role-settings"><Settings className="h-4 w-4" />الإعدادات</Link>
-          <Link href="/" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent" data-testid="link-role-logout"><LogOut className="h-4 w-4" />{t('logout')}</Link>
+          <button type="button" onClick={signOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent" data-testid="link-role-logout"><LogOut className="h-4 w-4" />{t('logout')}</button>
         </div>
       </aside>
       <div className="md:ps-72">

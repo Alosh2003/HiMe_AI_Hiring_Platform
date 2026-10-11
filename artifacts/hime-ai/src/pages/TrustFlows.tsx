@@ -7,10 +7,19 @@ import { Input } from '@/components/ui/input';
 import { useLanguage } from '@/i18n';
 import { useDemo } from '@/hooks/use-demo';
 import { DashboardLayout } from '@/layouts';
+import { useAuth } from '@/contexts/auth-context';
+import { SocialAuth } from '@/components/social-auth';
+import { resolvePostAuthRedirect, readNextParam, roleHome } from '@/lib/routes';
 import { login, register, getJob, apply as applyToJob, getProfile, uploadCv } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
+
+const DEMO_ACCOUNTS = {
+  seeker: { email: 'seeker@hime.ai', label: 'باحث عن عمل' },
+  company: { email: 'company@hime.ai', label: 'شركة' },
+  admin: { email: 'admin@hime.ai', label: 'إدارة' },
+} as const;
 
 function AuthFrame({ title, subtitle, side, children }: { title: string; subtitle: string; side: string; children: ReactNode }) {
   return (
@@ -55,9 +64,13 @@ function FieldWithError({ label, value, onChange, type = 'text', placeholder, er
 
 export function LoginPage() {
   const { t } = useLanguage();
+  const { login: performLogin } = useAuth();
+  const [, navigate] = useLocation();
+  // Capture ?next= before the router rewrites the query string.
+  const [nextParam] = useState(() => readNextParam(window.location.search));
   const [values, setValues] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<ReturnType<typeof validateLogin>>({});
-  const [submitted, setSubmitted] = useState(false);
+  const [pending, setPending] = useState(false);
   const [role, setRole] = useState<'seeker' | 'company' | 'admin'>('seeker');
 
   const submit = async (event: FormEvent) => {
@@ -65,12 +78,24 @@ export function LoginPage() {
     const nextErrors = validateLogin(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+
+    setPending(true);
     try {
-      await login(values.email, values.password);
-      setSubmitted(true);
+      await performLogin(values.email, values.password);
+      // performLogin persists synchronously via AuthProvider.
+      const signedIn = JSON.parse(localStorage.getItem('hime_ai_user') || '{}');
+      navigate(resolvePostAuthRedirect(signedIn.role, nextParam));
     } catch (err) {
       setErrors({ password: err instanceof Error ? err.message : 'Login failed' });
+    } finally {
+      setPending(false);
     }
+  };
+
+  const fillDemo = (value: 'seeker' | 'company' | 'admin') => {
+    setRole(value);
+    setValues({ email: DEMO_ACCOUNTS[value].email, password: 'password123' });
+    setErrors({});
   };
 
   return (
@@ -82,30 +107,65 @@ export function LoginPage() {
           <label className="flex items-center gap-2"><input type="checkbox" data-testid="checkbox-remember" /> تذكرني</label>
           <button type="button" className="font-bold text-primary" data-testid="button-forgot-password">نسيت كلمة المرور؟</button>
         </div>
-        <div><p className="mb-2 text-xs font-semibold">مساحة الدخول التجريبية</p><div className="grid grid-cols-3 gap-2">{[['seeker', 'باحث'], ['company', 'شركة'], ['admin', 'إدارة']].map(([value, label]) => <button type="button" key={value} onClick={() => setRole(value as 'seeker' | 'company' | 'admin')} className={`rounded-lg border p-2 text-xs font-semibold ${role === value ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={role === value} data-testid={`button-login-role-${value}`}>{label}</button>)}</div></div>
-        <Button type="submit" className="w-full" data-testid="button-submit-login">{submitted ? 'تم التحقق من البيانات' : t('signIn')}</Button>
-        {submitted && <div className="space-y-3 rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-login-success" role="status"><p>تم التحقق من البيانات. مساحة العمل جاهزة.</p><Link href={role === 'company' ? '/company/dashboard' : role === 'admin' ? '/admin/dashboard' : '/seeker/dashboard'} className="inline-block rounded-md bg-primary px-3 py-2 font-bold text-primary-foreground" data-testid="link-login-destination">الانتقال إلى لوحة التحكم</Link></div>}
+
+        <div>
+          <p className="mb-2 text-xs font-semibold">حساب تجريبي جاهز</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(Object.keys(DEMO_ACCOUNTS) as Array<'seeker' | 'company' | 'admin'>).map((value) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => fillDemo(value)}
+                className={`rounded-lg border p-2 text-xs font-semibold ${role === value ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}
+                aria-pressed={role === value}
+                data-testid={`button-login-role-${value}`}
+              >
+                {DEMO_ACCOUNTS[value].label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Button type="submit" className="w-full" disabled={pending} data-testid="button-submit-login">
+          {pending ? 'جارٍ التحقق…' : t('signIn')}
+        </Button>
+
+        <SocialAuth mode="signin" />
+
+        <p className="text-center text-sm text-muted-foreground" data-testid="text-login-register-prompt">
+          ليس لديك حساب؟{' '}
+          <Link href="/register" className="font-bold text-primary hover:underline" data-testid="link-register-from-login">
+            أنشئ حساباً جديداً
+          </Link>
+        </p>
       </form>
     </AuthFrame>
   );
 }
 
 export function RegisterPage() {
+  const { register: performRegister } = useAuth();
+  const [, navigate] = useLocation();
   const initialRole = new URLSearchParams(window.location.search).get('role') === 'company' ? 'company' : 'seeker';
   const [values, setValues] = useState({ name: '', email: '', password: '', role: initialRole as 'seeker' | 'company', termsAccepted: false });
   const [errors, setErrors] = useState<ReturnType<typeof validateRegistration>>({});
-  const [done, setDone] = useState(false);
+  const [pending, setPending] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = validateRegistration(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+
+    setPending(true);
     try {
-      await register(values.name, values.email, values.password, values.role);
-      setDone(true);
+      await performRegister(values.name, values.email, values.password, values.role);
+      const signedUp = JSON.parse(localStorage.getItem('hime_ai_user') || '{}');
+      navigate(roleHome(signedUp.role || values.role));
     } catch (err) {
       setErrors({ email: err instanceof Error ? err.message : 'Registration failed' });
+    } finally {
+      setPending(false);
     }
   };
 
@@ -127,8 +187,18 @@ export function RegisterPage() {
           <span>أوافق على شروط الاستخدام وسياسة الخصوصية.</span>
         </label>
         {errors.termsAccepted && <p className="text-xs text-destructive" role="alert" data-testid="error-register-terms">{errors.termsAccepted}</p>}
-        <Button type="submit" className="w-full" data-testid="button-submit-register">{done ? 'تم تجهيز طلبك' : 'إنشاء الحساب'}</Button>
-        {done && <div className="space-y-3 rounded-lg bg-primary/10 p-3 text-center text-xs text-primary" data-testid="status-register-success" role="status"><p>تم التحقق من البيانات. مساحة العمل جاهزة للبدء.</p><Link href={values.role === 'company' ? '/company/dashboard' : '/seeker/dashboard'} className="inline-block rounded-md bg-primary px-3 py-2 font-bold text-primary-foreground" data-testid="link-register-destination">الانتقال إلى لوحة التحكم</Link></div>}
+        <Button type="submit" className="w-full" disabled={pending} data-testid="button-submit-register">
+          {pending ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
+        </Button>
+
+        <SocialAuth mode="signup" />
+
+        <p className="text-center text-sm text-muted-foreground" data-testid="text-register-login-prompt">
+          لديك حساب بالفعل،{' '}
+          <Link href="/login" className="font-bold text-primary hover:underline" data-testid="link-login-from-register">
+            قم بتسجيل الدخول
+          </Link>
+        </p>
       </form>
     </AuthFrame>
   );

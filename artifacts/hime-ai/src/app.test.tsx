@@ -75,7 +75,18 @@ describe('route matrix', () => {
       localStorage.setItem('hime_ai_token', 'test-jwt-token');
 
       const view = renderAt(path, width);
-      expect(document.body.textContent?.trim().length, `${width}px ${path}`).toBeGreaterThan(0);
+      const text = document.body.textContent?.trim() ?? '';
+
+      // A blank page is a failure...
+      expect(text.length, `${width}px ${path} rendered nothing`).toBeGreaterThan(0);
+      // ...and so is the error boundary catching a render crash, which is
+      // how a response-shape mismatch like AdminJobsPage's data.filter
+      // shows up.
+      expect(
+        /Something went wrong|حدث خطأ|Unexpected Application Error/i.test(text),
+        `${width}px ${path} crashed`,
+      ).toBe(false);
+
       view.unmount();
       cleanup();
     }
@@ -152,33 +163,60 @@ describe('role workflows', () => {
 // ─── Route protection ───────────────────────────────────────────────────────
 
 describe('route protection', () => {
-  it('blocks a signed-out user from seeker routes', async () => {
+  it('redirects a signed-out user to login and remembers where they aimed', async () => {
     localStorage.removeItem('hime_ai_token');
     localStorage.removeItem('hime_ai_user');
 
-    renderAt('/seeker/dashboard');
+    renderAt('/seeker/applications');
 
-    expect(await screen.findByTestId('auth-required-message')).toBeInTheDocument();
-    expect(screen.getByTestId('auth-required-login-link')).toHaveAttribute('href', '/login');
+    // Guard redirects to /login?next=/seeker/applications — no click needed.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login');
+    });
+    expect(window.location.search).toContain(encodeURIComponent('/seeker/applications'));
   });
 
-  it('blocks a seeker from admin routes', async () => {
+  it('sends a seeker away from admin routes to their own dashboard', async () => {
     setRole('seeker');
     localStorage.setItem('hime_ai_token', 'test-jwt-token');
 
     renderAt('/admin/dashboard');
 
-    expect(await screen.findByTestId('access-denied-message')).toBeInTheDocument();
-    expect(screen.getByTestId('access-denied-home-link')).toHaveAttribute('href', '/');
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/dashboard');
+    });
   });
 
-  it('blocks a company from seeker routes', async () => {
+  it('sends a company away from seeker routes to their own dashboard', async () => {
     setRole('company');
     localStorage.setItem('hime_ai_token', 'test-jwt-token');
 
     renderAt('/seeker/dashboard');
 
-    expect(await screen.findByTestId('access-denied-message')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/company/dashboard');
+    });
+  });
+
+  it('keeps an admin on admin routes', async () => {
+    setRole('admin');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+
+    renderAt('/admin/dashboard');
+
+    await screen.findByTestId('workflow-guide-admin');
+    expect(window.location.pathname).toBe('/admin/dashboard');
+  });
+
+  it('keeps a signed-in user off the login and register pages', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+
+    renderAt('/login');
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/dashboard');
+    });
   });
 });
 
@@ -192,21 +230,58 @@ describe('authentication', () => {
     fireEvent.click(screen.getByTestId('button-submit-login'));
 
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
-    expect(screen.queryByTestId('status-login-success')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/login');
   });
 
-  it('confirms login with valid credentials', async () => {
+  it('sends a signed-in user straight to the role dashboard', async () => {
     localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
     renderAt('/login');
 
     fireEvent.change(screen.getByTestId('input-login-email'), { target: { value: 'person@example.com' } });
     fireEvent.change(screen.getByTestId('input-login-password'), { target: { value: 'correct-password' } });
     fireEvent.click(screen.getByTestId('button-submit-login'));
 
-    expect(await screen.findByTestId('status-login-success', {}, { timeout: 3000 })).toBeInTheDocument();
+    // No manual "go to dashboard" click — the route changes by itself.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/dashboard');
+    }, { timeout: 3000 });
+  });
+
+  it('honours ?next= after login when it belongs to the same role', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    window.history.pushState({}, '', '/login?next=/seeker/recommendations');
+    render(<App />);
+
+    fireEvent.change(screen.getByTestId('input-login-email'), { target: { value: 'person@example.com' } });
+    fireEvent.change(screen.getByTestId('input-login-password'), { target: { value: 'correct-password' } });
+    fireEvent.click(screen.getByTestId('button-submit-login'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/recommendations');
+    }, { timeout: 3000 });
+  });
+
+  it('ignores ?next= pointing at another role', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    window.history.pushState({}, '', '/login?next=/admin/jobs');
+    render(<App />);
+
+    fireEvent.change(screen.getByTestId('input-login-email'), { target: { value: 'person@example.com' } });
+    fireEvent.change(screen.getByTestId('input-login-password'), { target: { value: 'correct-password' } });
+    fireEvent.click(screen.getByTestId('button-submit-login'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/dashboard');
+    }, { timeout: 3000 });
   });
 
   it('requires terms consent on registration', async () => {
+    // GuestRoute bounces signed-in users off /register, so start signed out.
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
     renderAt('/register');
 
     fireEvent.change(screen.getByTestId('input-register-name'), { target: { value: 'Layan' } });
@@ -216,13 +291,72 @@ describe('authentication', () => {
     fireEvent.click(screen.getByTestId('button-submit-register'));
 
     expect(screen.getByTestId('error-register-terms')).toBeInTheDocument();
-    expect(screen.queryByTestId('status-register-success')).not.toBeInTheDocument();
+    expect(screen.getByTestId('button-role-company')).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByTestId('checkbox-terms'));
     fireEvent.click(screen.getByTestId('button-submit-register'));
 
-    expect(await screen.findByTestId('status-register-success')).toBeInTheDocument();
-    expect(screen.getByTestId('button-role-company')).toHaveAttribute('aria-pressed', 'true');
+    // A company signup lands on the company dashboard automatically.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/company/dashboard');
+    }, { timeout: 3000 });
+  });
+});
+
+// ─── Cross-links and social sign-in ─────────────────────────────────────────
+
+describe('auth page navigation', () => {
+  it('offers a link to register from the login page', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/login');
+
+    const link = await screen.findByTestId('link-register-from-login');
+    expect(link).toHaveAttribute('href', '/register');
+    expect(screen.getByTestId('text-login-register-prompt')).toHaveTextContent('ليس لديك حساب');
+  });
+
+  it('offers a link to login from the register page', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/register');
+
+    const link = await screen.findByTestId('link-login-from-register');
+    expect(link).toHaveAttribute('href', '/login');
+    expect(screen.getByTestId('text-register-login-prompt')).toHaveTextContent('لديك حساب بالفعل');
+  });
+
+  it('shows Google, GitHub and Facebook buttons on login', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/login');
+
+    expect(await screen.findByTestId('button-social-google')).toBeInTheDocument();
+    expect(screen.getByTestId('button-social-github')).toBeInTheDocument();
+    expect(screen.getByTestId('button-social-facebook')).toBeInTheDocument();
+  });
+
+  it('shows Google, GitHub and Facebook buttons on register', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/register');
+
+    expect(await screen.findByTestId('button-social-google')).toBeInTheDocument();
+    expect(screen.getByTestId('button-social-github')).toBeInTheDocument();
+    expect(screen.getByTestId('button-social-facebook')).toBeInTheDocument();
+  });
+
+  it('does not silently fake a session when a social button is pressed', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/login');
+
+    fireEvent.click(await screen.findByTestId('button-social-google'));
+
+    // It explains the provider is not wired up, and stays signed out.
+    expect(await screen.findByTestId('status-social-unavailable')).toBeInTheDocument();
+    expect(localStorage.getItem('hime_ai_token')).toBeNull();
+    expect(window.location.pathname).toBe('/login');
   });
 });
 
