@@ -6,6 +6,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { LanguageProvider } from '@/i18n';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { AuthProvider } from '@/contexts/auth-context';
+import { ProtectedRoute } from '@/components/protected-route';
 import {
   AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
   CompanyJobsPage, HomePage, JobsPage, NewJobPage, RecommendationsPage
@@ -35,24 +37,67 @@ function Router() {
         <Route path="/login" component={LoginPage} />
         <Route path="/register" component={RegisterPage} />
         <Route path="/about" component={AboutPage} />
-        <Route path="/seeker/dashboard" component={CandidateDashboardPage} />
-        <Route path="/seeker/profile" component={CandidateProfilePage} />
-        <Route path="/seeker/cv" component={SeekerCvPage} />
-        <Route path="/seeker/recommendations" component={RecommendationsPage} />
-        <Route path="/seeker/applications" component={ApplicationsPage} />
-        <Route path="/company/dashboard" component={CompanyDashboardPage} />
-        <Route path="/company/profile" component={CompanyProfilePage} />
-        <Route path="/company/jobs/new" component={NewJobPage} />
-        <Route path="/company/jobs/:jobId/candidates/:candidateId" component={CandidateReviewPage} />
-        <Route path="/company/jobs/:id/candidates" component={CandidatesPage} />
-        <Route path="/company/jobs/:id" component={CompanyJobDetailPage} />
-        <Route path="/company/jobs" component={CompanyJobsPage} />
-        <Route path="/admin/dashboard" component={AdminDashboardPage} />
-        <Route path="/admin/profile" component={AdminProfilePage} />
-        <Route path="/admin/companies" component={AdminCompaniesPage} />
-        <Route path="/admin/candidates" component={AdminCandidatesPage} />
-        <Route path="/admin/jobs" component={AdminJobsPage} />
-        <Route path="/admin/applications" component={AdminApplicationsPage} />
+
+        {/* Seeker routes */}
+        <Route path="/seeker/dashboard">
+          <ProtectedRoute roles={['seeker']}><CandidateDashboardPage /></ProtectedRoute>
+        </Route>
+        <Route path="/seeker/profile">
+          <ProtectedRoute roles={['seeker']}><CandidateProfilePage /></ProtectedRoute>
+        </Route>
+        <Route path="/seeker/cv">
+          <ProtectedRoute roles={['seeker']}><SeekerCvPage /></ProtectedRoute>
+        </Route>
+        <Route path="/seeker/recommendations">
+          <ProtectedRoute roles={['seeker']}><RecommendationsPage /></ProtectedRoute>
+        </Route>
+        <Route path="/seeker/applications">
+          <ProtectedRoute roles={['seeker']}><ApplicationsPage /></ProtectedRoute>
+        </Route>
+
+        {/* Company routes */}
+        <Route path="/company/dashboard">
+          <ProtectedRoute roles={['company']}><CompanyDashboardPage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/profile">
+          <ProtectedRoute roles={['company']}><CompanyProfilePage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/jobs/new">
+          <ProtectedRoute roles={['company']}><NewJobPage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/jobs/:jobId/candidates/:candidateId">
+          <ProtectedRoute roles={['company']}><CandidateReviewPage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/jobs/:id/candidates">
+          <ProtectedRoute roles={['company']}><CandidatesPage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/jobs/:id">
+          <ProtectedRoute roles={['company']}><CompanyJobDetailPage /></ProtectedRoute>
+        </Route>
+        <Route path="/company/jobs">
+          <ProtectedRoute roles={['company']}><CompanyJobsPage /></ProtectedRoute>
+        </Route>
+
+        {/* Admin routes */}
+        <Route path="/admin/dashboard">
+          <ProtectedRoute roles={['admin']}><AdminDashboardPage /></ProtectedRoute>
+        </Route>
+        <Route path="/admin/profile">
+          <ProtectedRoute roles={['admin']}><AdminProfilePage /></ProtectedRoute>
+        </Route>
+        <Route path="/admin/companies">
+          <ProtectedRoute roles={['admin']}><AdminCompaniesPage /></ProtectedRoute>
+        </Route>
+        <Route path="/admin/candidates">
+          <ProtectedRoute roles={['admin']}><AdminCandidatesPage /></ProtectedRoute>
+        </Route>
+        <Route path="/admin/jobs">
+          <ProtectedRoute roles={['admin']}><AdminJobsPage /></ProtectedRoute>
+        </Route>
+        <Route path="/admin/applications">
+          <ProtectedRoute roles={['admin']}><AdminApplicationsPage /></ProtectedRoute>
+        </Route>
+
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
@@ -61,13 +106,15 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <LanguageProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-            <Router />
-          </WouterRouter>
-        </LanguageProvider>
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <LanguageProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+              <Router />
+            </WouterRouter>
+          </LanguageProvider>
+        </TooltipProvider>
+      </AuthProvider>
       <Toaster />
     </QueryClientProvider>
   );

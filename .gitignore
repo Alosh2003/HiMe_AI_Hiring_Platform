@@ -49,3 +49,9 @@ Thumbs.db
 .local/
 
 .vercel
+
+# Environment variables — never commit secrets
+.env
+.env.local
+.env.*.local
+!.env.example

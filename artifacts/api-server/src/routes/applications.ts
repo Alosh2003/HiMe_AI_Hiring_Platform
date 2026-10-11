@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { applicationsTable, jobsTable, candidatesTable, matchResultsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { validateUuidParam } from "../middleware/validate-params";
 
 const router: IRouter = Router();
 
@@ -79,14 +80,14 @@ router.get("/my", authMiddleware, requireRole("seeker"), async (req: AuthRequest
   const jobIds = applications.map((a) => a.jobId);
   const jobs = jobIds.length > 0
     ? await db.query.jobsTable.findMany({
-        where: sql`${jobsTable.id} IN ${sql.raw(`(${jobIds.map(() => "?").join(",")})`)}`,
+        where: inArray(jobsTable.id, jobIds),
       })
     : [];
 
   const companyIds = jobs.map((j) => j.companyId);
   const companies = companyIds.length > 0
     ? await db.query.companiesTable.findMany({
-        where: sql`${companiesTable.id} IN ${sql.raw(`(${companyIds.map(() => "?").join(",")})`)}`,
+        where: inArray(companiesTable.id, companyIds),
       })
     : [];
 
@@ -102,7 +103,7 @@ router.get("/my", authMiddleware, requireRole("seeker"), async (req: AuthRequest
   }));
 });
 
-router.get("/job/:jobId", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+router.get("/job/:jobId", authMiddleware, requireRole("company"), validateUuidParam("jobId"), async (req: AuthRequest, res) => {
   const jobId = req.params.jobId as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -131,7 +132,7 @@ router.get("/job/:jobId", authMiddleware, requireRole("company"), async (req: Au
   const candidateIds = applications.map((a) => a.candidateId);
   const candidates = candidateIds.length > 0
     ? await db.query.candidatesTable.findMany({
-        where: sql`${candidatesTable.id} IN ${sql.raw(`(${candidateIds.map(() => "?").join(",")})`)}`,
+        where: inArray(candidatesTable.id, candidateIds),
       })
     : [];
 
@@ -157,7 +158,7 @@ router.get("/job/:jobId", authMiddleware, requireRole("company"), async (req: Au
   res.json(enriched);
 });
 
-router.patch("/:id", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const applicationId = req.params.id as string;
 
   const schema = z.object({
@@ -205,7 +206,7 @@ router.patch("/:id", authMiddleware, requireRole("company"), async (req: AuthReq
   res.json(updated[0]);
 });
 
-router.get("/matches/:jobId", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+router.get("/matches/:jobId", authMiddleware, requireRole("company"), validateUuidParam("jobId"), async (req: AuthRequest, res) => {
   const jobId = req.params.jobId as string;
 
   const matches = await db.query.matchResultsTable.findMany({
@@ -216,7 +217,7 @@ router.get("/matches/:jobId", authMiddleware, requireRole("company"), async (req
   const candidateIds = matches.map((m) => m.candidateId);
   const candidates = candidateIds.length > 0
     ? await db.query.candidatesTable.findMany({
-        where: sql`${candidatesTable.id} IN ${sql.raw(`(${candidateIds.map(() => "?").join(",")})`)}`,
+        where: inArray(candidatesTable.id, candidateIds),
       })
     : [];
 

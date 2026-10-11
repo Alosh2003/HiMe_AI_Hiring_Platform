@@ -1,11 +1,35 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, sql } from "drizzle-orm";
+import multer from "multer";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { parseCvText } from "../ai/cv-parser";
+import { calculateProfileCompletion } from "../ai/llm";
+import { saveFile } from "../services/file-storage";
+import { parseDocument } from "../services/document-parser";
 
 const router: IRouter = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+      "text/plain",
+      "text/markdown",
+    ];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Allowed: PDF, DOCX, TXT"));
+    }
+  },
+});
 
 router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
   const candidate = await db.query.candidatesTable.findFirst({
@@ -39,7 +63,7 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
   const skillIds = skills.map((s) => s.skillId);
   const skillRecords = skillIds.length > 0
     ? await db.query.skillsTable.findMany({
-        where: sql`${skillsTable.id} IN ${sql.raw(`(${skillIds.map(() => "?").join(",")})`)}`,
+        where: inArray(skillsTable.id, skillIds),
       })
     : [];
 
@@ -209,50 +233,169 @@ router.post("/education", authMiddleware, requireRole("seeker"), async (req: Aut
   res.status(201).json(newEdu[0]);
 });
 
-router.post("/cv", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
-  const schema = z.object({
-    fileName: z.string().min(1),
-    fileSize: z.number().int().positive(),
-    fileUrl: z.string().url(),
-    parsedData: z.object({
-      headline: z.string().optional(),
-      summary: z.string().optional(),
-      skills: z.array(z.string()).optional(),
-      experiences: z.array(z.object({
-        role: z.string(),
-        company: z.string(),
-        description: z.string().optional(),
-        startDate: z.string().optional(),
-        endDate: z.string().optional(),
-      })).optional(),
-    }).optional(),
-  });
+// ─── CV Upload with real file parsing ─────────────────────────────────────
 
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
-    return;
+router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"), async (req: AuthRequest, res) => {
+  try {
+    const candidate = await db.query.candidatesTable.findFirst({
+      where: eq(candidatesTable.userId, req.user!.userId),
+    });
+
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate profile not found" });
+      return;
+    }
+
+    // Handle file upload
+    if (req.file) {
+      const { buffer, originalname, mimetype, size } = req.file;
+
+      // Save file to local storage
+      const storedFile = await saveFile(buffer, originalname, mimetype);
+
+      // Parse document text
+      const cvText = await parseDocument(buffer, mimetype);
+
+      // Parse with LLM
+      let parsedData: {
+        headline?: string;
+        summary?: string;
+        skills?: string[];
+        experiences?: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
+      } | undefined;
+
+      if (cvText) {
+        try {
+          const llmResult = await parseCvText(cvText);
+          parsedData = {
+            headline: llmResult.headline,
+            summary: llmResult.summary,
+            skills: llmResult.skills,
+            experiences: llmResult.experiences,
+          };
+
+          // Auto-update profile
+          if (llmResult.headline) {
+            await db.update(candidatesTable)
+              .set({ headline: llmResult.headline, updatedAt: new Date() })
+              .where(eq(candidatesTable.id, candidate.id));
+          }
+          if (llmResult.summary) {
+            await db.update(candidatesTable)
+              .set({ summary: llmResult.summary, updatedAt: new Date() })
+              .where(eq(candidatesTable.id, candidate.id));
+          }
+          if (llmResult.skills.length > 0) {
+            for (const skillName of llmResult.skills) {
+              let skillRecord = await db.query.skillsTable.findFirst({
+                where: eq(skillsTable.name, skillName),
+              });
+              if (!skillRecord) {
+                const inserted = await db.insert(skillsTable).values({
+                  name: skillName,
+                  category: "professional" as const,
+                }).returning();
+                skillRecord = inserted[0];
+              }
+              const existing = await db.query.candidateSkillsTable.findFirst({
+                where: sql`${candidateSkillsTable.candidateId} = ${candidate.id} AND ${candidateSkillsTable.skillId} = ${skillRecord.id}`,
+              });
+              if (!existing) {
+                await db.insert(candidateSkillsTable).values({
+                  candidateId: candidate.id,
+                  skillId: skillRecord.id,
+                  proficiency: 3,
+                });
+              }
+            }
+          }
+        } catch {
+          // LLM parsing failed
+        }
+      }
+
+      // Recalculate profile completion
+      const completion = await calculateProfileCompletion(candidate.id);
+
+      const updated = await db.update(candidatesTable)
+        .set({
+          cvUrl: storedFile.url,
+          cvParsedData: parsedData,
+          completion,
+          updatedAt: new Date(),
+        })
+        .where(eq(candidatesTable.id, candidate.id))
+        .returning();
+
+      res.json({
+        ...updated[0],
+        file: {
+          id: storedFile.id,
+          name: storedFile.originalName,
+          url: storedFile.url,
+          size: storedFile.size,
+        },
+      });
+      return;
+    }
+
+    // Handle JSON body (backward compat)
+    const schema = z.object({
+      fileName: z.string().min(1),
+      fileSize: z.number().int().positive(),
+      fileUrl: z.string().url(),
+      cvText: z.string().optional(),
+      parsedData: z.object({
+        headline: z.string().optional(),
+        summary: z.string().optional(),
+        skills: z.array(z.string()).optional(),
+        experiences: z.array(z.object({
+          role: z.string(),
+          company: z.string(),
+          description: z.string().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+        })).optional(),
+      }).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+
+    let parsedData = parsed.data.parsedData;
+    if (parsed.data.cvText && !parsedData) {
+      try {
+        const llmResult = await parseCvText(parsed.data.cvText);
+        parsedData = {
+          headline: llmResult.headline,
+          summary: llmResult.summary,
+          skills: llmResult.skills,
+          experiences: llmResult.experiences,
+        };
+      } catch {
+        // LLM parsing failed
+      }
+    }
+
+    const completion = await calculateProfileCompletion(candidate.id);
+
+    const updated = await db.update(candidatesTable)
+      .set({
+        cvUrl: parsed.data.fileUrl,
+        cvParsedData: parsedData,
+        completion,
+        updatedAt: new Date(),
+      })
+      .where(eq(candidatesTable.id, candidate.id))
+      .returning();
+
+    res.json(updated[0]);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Upload failed" });
   }
-
-  const candidate = await db.query.candidatesTable.findFirst({
-    where: eq(candidatesTable.userId, req.user!.userId),
-  });
-
-  if (!candidate) {
-    res.status(404).json({ error: "Candidate profile not found" });
-    return;
-  }
-
-  const updated = await db.update(candidatesTable)
-    .set({
-      cvUrl: parsed.data.fileUrl,
-      cvParsedData: parsed.data.parsedData,
-      updatedAt: new Date(),
-    })
-    .where(eq(candidatesTable.id, candidate.id))
-    .returning();
-
-  res.json(updated[0]);
 });
 
 export default router;

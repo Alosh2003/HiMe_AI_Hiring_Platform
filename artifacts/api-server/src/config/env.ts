@@ -1,0 +1,43 @@
+import { z } from "zod/v4";
+
+const envSchema = z.object({
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  PORT: z.string().default("5000"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  UPLOAD_DIR: z.string().default("./uploads"),
+  CORS_ORIGIN: z.string().default("*"),
+  RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
+  RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
+});
+
+export type EnvConfig = z.infer<typeof envSchema>;
+
+let cachedConfig: EnvConfig | null = null;
+
+export function getConfig(): EnvConfig {
+  if (cachedConfig) return cachedConfig;
+
+  const parsed = envSchema.safeParse(process.env);
+
+  if (!parsed.success) {
+    console.error("Invalid environment variables:");
+    for (const issue of parsed.error.issues) {
+      console.error(`  - ${issue.path}: ${issue.message}`);
+    }
+    process.exit(1);
+  }
+
+  cachedConfig = parsed.data;
+  return cachedConfig;
+}
+
+export function isProduction(): boolean {
+  return getConfig().NODE_ENV === "production";
+}
+
+export function isDevelopment(): boolean {
+  return getConfig().NODE_ENV === "development";
+}

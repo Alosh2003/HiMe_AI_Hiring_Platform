@@ -1,11 +1,46 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import path from "path";
+import { getConfig, isProduction } from "./config/env";
+import { globalRateLimiter } from "./middleware/rate-limiter";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { sanitizeBody, sanitizeQuery } from "./middleware/sanitizer";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
+const config = getConfig();
+
 const app: Express = express();
 
+// Trust proxy for rate limiting behind reverse proxy
+app.set("trust proxy", 1);
+
+// CORS configuration
+const corsOrigins = config.CORS_ORIGIN === "*"
+  ? true
+  : config.CORS_ORIGIN.split(",").map((o) => o.trim());
+
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
+  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  maxAge: 86400, // 24 hours
+}));
+
+// Rate limiting
+app.use(globalRateLimiter);
+
+// Body parsing
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Input sanitization
+app.use(sanitizeBody);
+app.use(sanitizeQuery);
+
+// Logging
 app.use(
   pinoHttp({
     logger,
@@ -25,10 +60,22 @@ app.use(
     },
   }),
 );
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
+// Health check (no auth required)
+app.get("/healthz", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// API routes
 app.use("/api", router);
+
+// Serve uploaded files
+app.use("/files", express.static(path.join(process.cwd(), config.UPLOAD_DIR)));
+
+// 404 handler
+app.use(notFoundHandler);
+
+// Error handler
+app.use(errorHandler);
 
 export default app;

@@ -1,9 +1,12 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, matchResultsTable, skillsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
-import { computeMatch, rankCandidates, type MatchInput } from "../ai";
+import { computeMatch, rankCandidates, generateExplanation, type MatchInput } from "../ai";
+import { generateMatchExplanation } from "../ai/llm";
+import { aiRateLimiter } from "../middleware/rate-limiter";
+import { validateUuidParam, validateJobIdBody } from "../middleware/validate-params";
 
 const router: IRouter = Router();
 
@@ -85,7 +88,7 @@ function buildCandidateMatchInput(candidate: {
   return result;
 }
 
-router.post("/match", authMiddleware, requireRole("company", "seeker"), async (req: AuthRequest, res) => {
+router.post("/match", authMiddleware, requireRole("company", "seeker"), validateJobIdBody, aiRateLimiter, async (req: AuthRequest, res) => {
   const jobId = req.body.jobId as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -104,7 +107,7 @@ router.post("/match", authMiddleware, requireRole("company", "seeker"), async (r
   const skillIds = jobSkills.map((s) => s.skillId);
   const skillRecords = skillIds.length > 0
     ? await db.query.skillsTable.findMany({
-        where: sql`${skillsTable.id} IN ${sql.raw(`(${skillIds.map(() => "?").join(",")})`)}`,
+        where: inArray(skillsTable.id, skillIds),
       })
     : [];
 
@@ -144,18 +147,31 @@ router.post("/match", authMiddleware, requireRole("company", "seeker"), async (r
 
   const result = computeMatch(matchInput);
 
+  // Try to generate LLM explanation, fallback to rule-based
+  let explanation = result.explanation;
+  try {
+    explanation = await generateMatchExplanation(
+      job.title,
+      candidate.headline || candidate.id,
+      result.overallScore,
+      result.breakdown,
+    );
+  } catch {
+    // Use rule-based explanation as fallback
+  }
+
   await db.insert(matchResultsTable).values({
     jobId: job.id,
     candidateId: candidate.id,
     overallScore: result.overallScore,
     breakdown: result.breakdown,
-    explanation: result.explanation,
+    explanation,
   });
 
-  res.json(result);
+  res.json({ ...result, explanation });
 });
 
-router.get("/rank/:jobId", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+router.get("/rank/:jobId", authMiddleware, requireRole("company"), validateUuidParam("jobId"), aiRateLimiter, async (req: AuthRequest, res) => {
   const jobId = req.params.jobId as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -183,7 +199,7 @@ router.get("/rank/:jobId", authMiddleware, requireRole("company"), async (req: A
   const skillIds = jobSkills.map((s) => s.skillId);
   const skillRecords = skillIds.length > 0
     ? await db.query.skillsTable.findMany({
-        where: sql`${skillsTable.id} IN ${sql.raw(`(${skillIds.map(() => "?").join(",")})`)}`,
+        where: inArray(skillsTable.id, skillIds),
       })
     : [];
 
@@ -227,7 +243,7 @@ router.get("/rank/:jobId", authMiddleware, requireRole("company"), async (req: A
   );
 });
 
-router.get("/recommendations", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimiter, async (req: AuthRequest, res) => {
   const candidate = await db.query.candidatesTable.findFirst({
     where: eq(candidatesTable.userId, req.user!.userId),
   });
@@ -252,7 +268,7 @@ router.get("/recommendations", authMiddleware, requireRole("seeker"), async (req
   const candidateSkillIds = candidateSkills.map((s) => s.skillId);
   const candidateSkillRecords = candidateSkillIds.length > 0
     ? await db.query.skillsTable.findMany({
-        where: sql`${skillsTable.id} IN ${sql.raw(`(${candidateSkillIds.map(() => "?").join(",")})`)}`,
+        where: inArray(skillsTable.id, candidateSkillIds),
       })
     : [];
 
@@ -271,7 +287,7 @@ router.get("/recommendations", authMiddleware, requireRole("seeker"), async (req
   const companyIds = activeJobs.map((j) => j.companyId);
   const companies = companyIds.length > 0
     ? await db.query.companiesTable.findMany({
-        where: sql`${companiesTable.id} IN ${sql.raw(`(${companyIds.map(() => "?").join(",")})`)}`,
+        where: inArray(companiesTable.id, companyIds),
       })
     : [];
 
@@ -286,7 +302,7 @@ router.get("/recommendations", authMiddleware, requireRole("seeker"), async (req
       const sIds = skills.map((s) => s.skillId);
       const sRecords = sIds.length > 0
         ? await db.query.skillsTable.findMany({
-            where: sql`${skillsTable.id} IN ${sql.raw(`(${sIds.map(() => "?").join(",")})`)}`,
+            where: inArray(skillsTable.id, sIds),
           })
         : [];
 

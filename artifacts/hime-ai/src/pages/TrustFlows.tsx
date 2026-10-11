@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useLanguage } from '@/i18n';
 import { useDemo } from '@/hooks/use-demo';
 import { DashboardLayout } from '@/layouts';
-import { demoApi } from '@/services/api/ApiClient';
+import { login, register, getJob, apply as applyToJob, getProfile, uploadCv } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
@@ -60,11 +60,17 @@ export function LoginPage() {
   const [submitted, setSubmitted] = useState(false);
   const [role, setRole] = useState<'seeker' | 'company' | 'admin'>('seeker');
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = validateLogin(values);
     setErrors(nextErrors);
-    setSubmitted(Object.keys(nextErrors).length === 0);
+    if (Object.keys(nextErrors).length > 0) return;
+    try {
+      await login(values.email, values.password);
+      setSubmitted(true);
+    } catch (err) {
+      setErrors({ password: err instanceof Error ? err.message : 'Login failed' });
+    }
   };
 
   return (
@@ -90,11 +96,17 @@ export function RegisterPage() {
   const [errors, setErrors] = useState<ReturnType<typeof validateRegistration>>({});
   const [done, setDone] = useState(false);
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = validateRegistration(values);
     setErrors(nextErrors);
-    setDone(Object.keys(nextErrors).length === 0);
+    if (Object.keys(nextErrors).length > 0) return;
+    try {
+      await register(values.name, values.email, values.password, values.role);
+      setDone(true);
+    } catch (err) {
+      setErrors({ email: err instanceof Error ? err.message : 'Registration failed' });
+    }
   };
 
   return (
@@ -125,14 +137,14 @@ export function RegisterPage() {
 export function JobDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useLanguage();
-  const { data: job, loading, error, reload } = useDemo(() => demoApi.getJob(id || ''), [id]);
+  const { data: job, loading, error, reload } = useDemo(() => getJob(id || ''), [id]);
   const [applyState, setApplyState] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
 
   const apply = async () => {
     if (!job) return;
     setApplyState('submitting');
     try {
-      await demoApi.apply(job.id);
+      await applyToJob(job.id);
       setApplyState('success');
     } catch {
       setApplyState('error');
@@ -161,7 +173,7 @@ export function JobDetailsPage() {
 
 export function SeekerCvPage() {
   const { t } = useLanguage();
-  const { data: profile, loading } = useDemo(demoApi.getProfile, []);
+  const { data: profile, loading } = useDemo(getProfile, []);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -174,7 +186,7 @@ export function SeekerCvPage() {
 
     setUploading(true);
     try {
-      await demoApi.uploadCv({ name: file.name, size: file.size });
+      await uploadCv({ name: file.name, size: file.size });
       setUploaded(true);
     } catch {
       setUploadError('تعذر رفع السيرة الذاتية حالياً. حاول مرة أخرى.');

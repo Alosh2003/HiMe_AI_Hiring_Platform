@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { companiesTable, jobsTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { validateUuidParam } from "../middleware/validate-params";
 
 const router: IRouter = Router();
 
@@ -16,7 +17,7 @@ router.get("/", async (_req, res) => {
   res.json(companies);
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", validateUuidParam("id"), async (req, res) => {
   const companyId = req.params.id as string;
 
   const company = await db.query.companiesTable.findFirst({

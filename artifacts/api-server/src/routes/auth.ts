@@ -5,6 +5,8 @@ import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { signToken, authMiddleware, type AuthRequest } from "../middleware/auth";
+import { authRateLimiter } from "../middleware/rate-limiter";
+import { sanitizeEmail } from "../middleware/sanitizer";
 
 const router: IRouter = Router();
 
@@ -21,14 +23,15 @@ const registerSchema = z.object({
   phone: z.string().optional(),
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", authRateLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
     return;
   }
 
-  const { email, password } = parsed.data;
+  const { email: rawEmail, password } = parsed.data;
+  const email = sanitizeEmail(rawEmail);
 
   const user = await db.query.usersTable.findFirst({
     where: eq(usersTable.email, email),
@@ -64,14 +67,15 @@ router.post("/login", async (req, res) => {
   });
 });
 
-router.post("/register", async (req, res) => {
+router.post("/register", authRateLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
     return;
   }
 
-  const { name, email, password, role, phone } = parsed.data;
+  const { name, email: rawEmail, password, role, phone } = parsed.data;
+  const email = sanitizeEmail(rawEmail);
 
   const existing = await db.query.usersTable.findFirst({
     where: eq(usersTable.email, email),

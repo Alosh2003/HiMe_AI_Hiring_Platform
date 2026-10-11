@@ -145,6 +145,8 @@ function generateExplanation(
   return parts.join(" — ") + ".";
 }
 
+export { generateExplanation };
+
 // ─── Batch matching ────────────────────────────────────────────────────────
 
 export function computeMatchBatch(

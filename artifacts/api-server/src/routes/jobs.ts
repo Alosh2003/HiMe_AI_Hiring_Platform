@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { jobsTable, companiesTable, jobSkillsTable, skillsTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { validateUuidParam } from "../middleware/validate-params";
 
 const router: IRouter = Router();
 
@@ -21,34 +22,63 @@ const createJobSchema = z.object({
   preferredSkills: z.array(z.object({ name: z.string(), category: z.string() })).default([]),
 });
 
-router.get("/", async (req, res) => {
-  const { search, industry, contract, status = "active" } = req.query;
+const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 20;
 
-  const conditions: SQL[] = [eq(jobsTable.status, status as "active")];
+router.get("/", async (req, res) => {
+  const { search, industry, contract, status, page, limit } = req.query;
+
+  // Validate enum + pagination values instead of letting Postgres throw
+  const statusSchema = z.enum(["draft", "active", "paused", "closed"]).catch("active");
+  const contractSchema = z.enum(["full-time", "part-time", "contract", "internship"]).optional();
+  const pageSchema = z.coerce.number().int().min(1).catch(1);
+  const limitSchema = z.coerce.number().int().min(1).max(MAX_LIMIT).catch(DEFAULT_LIMIT);
+
+  const statusResult = statusSchema.safeParse(status);
+  const parsedStatus: "draft" | "active" | "paused" | "closed" = statusResult.success
+    ? statusResult.data
+    : "active";
+  const contractResult = contractSchema.safeParse(contract);
+  const parsedContract = contractResult.success ? contractResult.data : undefined;
+
+  const conditions: SQL[] = [eq(jobsTable.status, parsedStatus)];
 
   if (search) {
-    const searchStr = String(search);
+    const searchStr = String(search).slice(0, 200);
     conditions.push(
       sql`(${ilike(jobsTable.title, `%${searchStr}%`)} OR ${ilike(jobsTable.description, `%${searchStr}%`)})`,
     );
   }
   if (industry) {
-    conditions.push(eq(jobsTable.industry, String(industry)));
+    conditions.push(eq(jobsTable.industry, String(industry).slice(0, 100)));
   }
-  if (contract) {
-    conditions.push(eq(jobsTable.contractType, contract as "full-time"));
+  if (parsedContract) {
+    conditions.push(eq(jobsTable.contractType, parsedContract));
   }
+
+  // Pagination
+  const pageResult = pageSchema.safeParse(page);
+  const limitResult = limitSchema.safeParse(limit);
+  const parsedPage = pageResult.success ? pageResult.data : 1;
+  const parsedLimit = limitResult.success ? limitResult.data : DEFAULT_LIMIT;
+  const offset = (parsedPage - 1) * parsedLimit;
 
   const jobs = await db.query.jobsTable.findMany({
     where: and(...conditions),
     orderBy: desc(jobsTable.createdAt),
-    limit: 100,
+    limit: parsedLimit,
+    offset,
   });
+
+  const [totalResult] = await db.select({ count: sql<number>`count(*)` })
+    .from(jobsTable)
+    .where(and(...conditions));
+  const total = Number(totalResult?.count || 0);
 
   const companyIds = jobs.map((j) => j.companyId);
   const companies = companyIds.length > 0
     ? await db.query.companiesTable.findMany({
-        where: sql`${companiesTable.id} IN ${sql.raw(`(${companyIds.map(() => "?").join(",")})`)}`,
+        where: inArray(companiesTable.id, companyIds),
       })
     : [];
 
@@ -63,7 +93,7 @@ router.get("/", async (req, res) => {
       const skillIds = skills.map((s) => s.skillId);
       const skillRecords = skillIds.length > 0
         ? await db.query.skillsTable.findMany({
-            where: sql`${skillsTable.id} IN ${sql.raw(`(${skillIds.map(() => "?").join(",")})`)}`,
+            where: inArray(skillsTable.id, skillIds),
           })
         : [];
 
@@ -84,10 +114,19 @@ router.get("/", async (req, res) => {
     }),
   );
 
-  res.json(jobsWithSkills);
+  res.json({
+    jobs: jobsWithSkills,
+    pagination: {
+      page: parsedPage,
+      limit: parsedLimit,
+      total,
+      totalPages: Math.ceil(total / parsedLimit),
+      hasNext: offset + jobsWithSkills.length < total,
+    },
+  });
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", validateUuidParam("id"), async (req, res) => {
   const jobId = req.params.id as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -110,7 +149,7 @@ router.get("/:id", async (req, res) => {
   const skillIds = skills.map((s) => s.skillId);
   const skillRecords = skillIds.length > 0
     ? await db.query.skillsTable.findMany({
-        where: sql`${skillsTable.id} IN ${sql.raw(`(${skillIds.map(() => "?").join(",")})`)}`,
+        where: inArray(skillsTable.id, skillIds),
       })
     : [];
 
@@ -190,7 +229,7 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
   res.status(201).json(newJob[0]);
 });
 
-router.patch("/:id", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const jobId = req.params.id as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -230,7 +269,7 @@ router.patch("/:id", authMiddleware, requireRole("company"), async (req: AuthReq
   res.json(updated[0]);
 });
 
-router.delete("/:id", authMiddleware, requireRole("company", "admin"), async (req: AuthRequest, res) => {
+router.delete("/:id", authMiddleware, requireRole("company", "admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const jobId = req.params.id as string;
 
   const job = await db.query.jobsTable.findFirst({

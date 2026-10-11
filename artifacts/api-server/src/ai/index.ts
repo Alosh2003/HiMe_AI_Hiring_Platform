@@ -6,3 +6,5 @@ export * from "./location-matcher";
 export * from "./salary-matcher";
 export * from "./culture-matcher";
 export * from "./education-matcher";
+export * from "./llm";
+export * from "./cv-parser";

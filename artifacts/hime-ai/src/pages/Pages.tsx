@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { demoApi } from '@/services/api/ApiClient';
+import * as demoApi from '@/services/api/demo-api';
 import { useLanguage } from '@/i18n';
 import { useDemo } from '@/hooks/use-demo';
 import { RoleShell } from '@/components/role-shell';
@@ -319,13 +319,13 @@ export function RecommendationsPage() {
               <div>
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-primary">ماذا تطابق؟</p>
                 <div className="flex flex-wrap gap-2">
-                  {match.matchedSkills.map((skill) => (
+                  {match.matchedSkills.map((skill: import('@/types').Skill) => (
                     <span key={skill.id} className="rounded-md bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary">{skill.name}</span>
                   ))}
                 </div>
                 <p className="mb-2 mt-5 text-xs font-bold text-muted-foreground">فجوات تستحق النظر</p>
                 <div className="flex flex-wrap gap-2">
-                  {match.missingSkills.map((skill) => (
+                  {match.missingSkills.map((skill: import('@/types').Skill) => (
                     <span key={skill.id} className="rounded-md bg-muted px-2.5 py-1.5 text-[11px]">{skill.name}</span>
                   ))}
                 </div>
@@ -927,13 +927,13 @@ export function CandidatesPage() {
               <div>
                 <p className="mb-2 text-xs font-bold text-primary">المهارات المطابقة</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {candidate.matchedSkills.map((skill) => (
+                  {candidate.matchedSkills.map((skill: import('@/types').Skill) => (
                     <span key={skill.id} className="rounded bg-primary/10 px-2 py-1 text-[10px] text-primary">{skill.name}</span>
                   ))}
                 </div>
                 <p className="mb-2 mt-4 text-xs font-bold text-muted-foreground">فجوات</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {candidate.missingSkills.map((skill) => (
+                  {candidate.missingSkills.map((skill: import('@/types').Skill) => (
                     <span key={skill.id} className="rounded bg-muted px-2 py-1 text-[10px]">{skill.name}</span>
                   ))}
                 </div>

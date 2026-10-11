@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useDemo } from '@/hooks/use-demo';
-import { demoApi } from '@/services/api/ApiClient';
+import * as demoApi from '@/services/api/demo-api';
 import { FeedbackState, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
 import { RoleShell } from '@/components/role-shell';
 import { WorkflowGuide } from '@/components/workflow-guide';
@@ -189,19 +189,19 @@ export function AdminCandidatesPage() {
 
       {/* Stats */}
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        {[
+        {([
           ['إجمالي الباحثين', '1,248', Building2],
           ['ملفات محللة', '1,043', FileText],
           ['نشطون هذا الأسبوع', '384', Users],
-        ].map(([label, value, Icon]) => (
+        ] as [string, string, React.ComponentType<{ className?: string }>][]).map(([label, value, Icon]) => (
           <Card key={label as string}>
             <CardContent className="flex items-center gap-4 p-5">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
+                {Icon && (() => { const I = Icon as React.ComponentType<{ className?: string }>; return <I className="h-5 w-5" />; })()}
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 text-2xl font-bold">{value}</p>
+                <p className="mt-1 text-2xl font-bold">{String(value)}</p>
               </div>
             </CardContent>
           </Card>

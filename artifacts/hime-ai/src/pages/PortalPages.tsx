@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useDemo } from '@/hooks/use-demo';
 import { useLanguage } from '@/i18n';
-import { demoApi } from '@/services/api/ApiClient';
+import * as demoApi from '@/services/api/demo-api';
 import { adminActivity, adminPermissions, candidateActivity, companyActivity, companyBenefits } from '@/services/portal-data';
 import type { CandidateProfile, Company } from '@/types';
 import { Field, FeedbackState, JobCard, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
@@ -26,9 +26,11 @@ function SectionTitle({ title, description, action }: { title: string; descripti
 }
 
 export function CandidateDashboardPage() {
-  const { data: profile, loading } = useDemo(demoApi.getProfile, []);
+  const { data: rawProfile, loading } = useDemo(demoApi.getProfile, []);
+  const profile = typeof rawProfile === 'function' ? null : rawProfile;
   const { data: jobs } = useDemo(() => demoApi.listJobs(), []);
-  const { data: applications } = useDemo(demoApi.applications, []);
+  const { data: rawApplications } = useDemo(demoApi.applications, []);
+  const applications = typeof rawApplications === 'function' ? null : rawApplications;
   if (loading || !profile) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
   return <RoleShell role="seeker">
     <PageHeader eyebrow="لوحة الباحث عن عمل" title="مساحتك المهنية في صورة واحدة." description="تابع جاهزية ملفك، فرصك الأقرب، وكل ما يحتاج انتباهك اليوم." action={<div className="flex gap-2"><Link href="/seeker/cv" className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold">مراجعة السيرة</Link><Link href="/seeker/profile" className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground">تعديل الملف</Link></div>} />
@@ -59,7 +61,7 @@ export function CandidateProfilePage() {
     <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="grid h-16 w-16 place-items-center rounded-2xl bg-primary text-xl font-bold text-primary-foreground">لع</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · متاح لفرص جديدة</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="sm" /><div><p className="text-xs text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">أضف مشروعاً لرفع النتيجة</p></div></div></div>
     <div className="grid gap-6 xl:grid-cols-[1fr_300px]"><div className="space-y-6">
       <Card><CardHeader><CardTitle className="text-base">المعلومات الشخصية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2"><Field label="العنوان المهني" value={profile.headline} onChange={(value) => update('headline', value)} /><Field label="الموقع" value={profile.location} onChange={(value) => update('location', value)} /><Field label="رقم الهاتف" value={profile.phone} onChange={(value) => update('phone', value)} /><Field label="البريد الإلكتروني" value="layan@example.com" onChange={() => undefined} /><div className="md:col-span-2"><Field label="الملخص المهني" value={profile.summary} onChange={(value) => update('summary', value)} multiline /></div></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">المهارات</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2">{profile.skills.map((skill) => <span key={skill.id} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{skill.name}<button onClick={() => update('skills', profile.skills.filter((item) => item.id !== skill.id))} aria-label={`إزالة ${skill.name}`} className="text-primary/60 hover:text-destructive">×</button></span>)}</div><div className="mt-5 flex max-w-md gap-2"><Input value={newSkill} onChange={(event) => setNewSkill(event.target.value)} placeholder="أضف مهارة جديدة" data-testid="input-new-candidate-skill" /><Button type="button" variant="outline" onClick={addSkill} data-testid="button-add-candidate-skill"><Plus className="h-4 w-4" />إضافة</Button></div></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">المهارات</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2">{profile.skills.map((skill: import('@/types').Skill) => <span key={skill.id} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{skill.name}<button onClick={() => update('skills', profile.skills.filter((item: import('@/types').Skill) => item.id !== skill.id))} aria-label={`إزالة ${skill.name}`} className="text-primary/60 hover:text-destructive">×</button></span>)}</div><div className="mt-5 flex max-w-md gap-2"><Input value={newSkill} onChange={(event) => setNewSkill(event.target.value)} placeholder="أضف مهارة جديدة" data-testid="input-new-candidate-skill" /><Button type="button" variant="outline" onClick={addSkill} data-testid="button-add-candidate-skill"><Plus className="h-4 w-4" />إضافة</Button></div></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">الخبرة العملية</CardTitle></CardHeader><CardContent className="space-y-6">{profile.experiences.map((item) => <div key={item.id} className="relative flex gap-4 border-s border-border ps-5 last:border-s-0"><span className="absolute -start-1.5 top-1 h-3 w-3 rounded-full bg-accent" /><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{item.role}</p><span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{item.startDate} — {item.endDate}</span></div><p className="mt-1 text-xs text-muted-foreground">{item.company} · {item.location}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p></div></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة خبرة</Button></CardContent></Card>
       <div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">التعليم</CardTitle></CardHeader><CardContent className="space-y-4">{profile.education.map((item) => <div key={item.id} className="rounded-xl bg-secondary/60 p-4"><p className="font-bold">{item.degree}</p><p className="mt-1 text-xs text-muted-foreground">{item.field}</p><p className="mt-2 text-xs">{item.institution} · {item.year}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة تعليم</Button></CardContent></Card><Card><CardHeader><CardTitle className="text-base">المشاريع</CardTitle></CardHeader><CardContent className="space-y-4">{profile.projects.map((item) => <div key={item.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between"><p className="font-bold">{item.name}</p><Globe2 className="h-4 w-4 text-primary" /></div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة مشروع</Button></CardContent></Card></div>
       <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div></div>)}<Button type="button" variant="outline" className="border-dashed"><Plus className="h-4 w-4" />إضافة شهادة</Button></CardContent></Card>
@@ -72,9 +74,12 @@ export function CandidateProfilePage() {
 }
 
 export function CompanyDashboardPage() {
-  const { data: company, loading } = useDemo(demoApi.company, []);
-  const { data: jobs } = useDemo(demoApi.getCompanyJobs, []);
-  const { data: candidates } = useDemo(() => demoApi.candidates('j-1'), []);
+  const { data: rawCompany, loading } = useDemo(demoApi.company, []);
+  const company = typeof rawCompany === 'function' ? null : rawCompany;
+  const { data: rawJobs } = useDemo(demoApi.getCompanyJobs, []);
+  const jobs = typeof rawJobs === 'function' ? null : rawJobs;
+  const { data: rawCandidates } = useDemo(() => demoApi.candidates('j-1'), []);
+  const candidates = typeof rawCandidates === 'function' ? null : rawCandidates;
   if (loading || !company) return <RoleShell role="company"><LoadingState /></RoleShell>;
   return <RoleShell role="company">
     <PageHeader eyebrow="لوحة الشركة" title="مركز التوظيف الذي يرى الصورة كاملة." description="من أداء الوظائف إلى جودة المرشحين، كل قرار يبدأ من بيانات أوضح." action={<div className="flex gap-2"><Link href="/company/profile" className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold">ملف الشركة</Link><Link href="/company/jobs/new" className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"><Plus className="me-1 inline h-4 w-4" />إضافة وظيفة</Link></div>} />
@@ -86,7 +91,8 @@ export function CompanyDashboardPage() {
 }
 
 export function CompanyProfilePage() {
-  const { data, loading } = useDemo(demoApi.company, []);
+  const { data: rawData, loading } = useDemo(demoApi.company, []);
+  const data = typeof rawData === 'function' ? null : rawData;
   const [draft, setDraft] = useState<Company | null>(null);
   const [saved, setSaved] = useState(false);
   if (loading || (!data && !draft)) return <RoleShell role="company"><LoadingState /></RoleShell>;

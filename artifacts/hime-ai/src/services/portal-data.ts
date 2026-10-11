@@ -1,26 +1,36 @@
+export const adminActivity = [
+  { title: 'تم التحقق من شركة جديدة', detail: 'شركة التقنية المضافة', time: 'قبل ساعة', tone: 'primary' as const },
+  { title: 'وظيفة تحتاج مراجعة', detail: 'وصف الوظيفة غير واضح', time: 'قبل 3 ساعات', tone: 'accent' as const },
+  { title: 'بلاغ جديد', detail: 'بلاغ على محتوى وظيفة', time: 'قبل 5 ساعات', tone: 'neutral' as const },
+  { title: 'اكتمل التحقق من شركة', detail: 'شركة البيانات المتقدمة', time: 'أمس', tone: 'primary' as const },
+];
+
+export const adminPermissions = [
+  { label: 'إدارة المستخدمين', detail: 'إضافة أو تعليق حسابات', enabled: true },
+  { label: 'التحقق من الشركات', detail: 'الموافقة على طلبات التحقق', enabled: true },
+  { label: 'مراجعة المحتوى', detail: 'مراجعة الوظائف والتوصيات', enabled: true },
+  { label: 'الوصول للبيانات', detail: 'تصدير التقارير والإحصاءات', enabled: false },
+];
+
 export const candidateActivity = [
-  { title: 'تمت إضافة وظيفة جديدة تناسب مهاراتك', detail: 'مصمم تجربة مستخدم أول · 92% تطابق', time: 'منذ ساعتين', tone: 'primary' },
-  { title: 'راجعت شركة مِداد ملفك المهني', detail: 'ملفك ظاهر الآن ضمن المرشحين المقترحين', time: 'منذ يوم', tone: 'accent' },
-  { title: 'اقترب موعد إغلاق وظيفة مدير المنتج', detail: 'تبقى 5 أيام على آخر موعد للتقديم', time: 'منذ يومين', tone: 'muted' },
+  { title: 'تم تحليل سيرتك الذاتية', detail: 'استخرجنا 8 مهارات جديدة', time: 'قبل يوم', tone: 'primary' as const },
+  { title: 'توصية جديدة', detail: 'مصمم تجربة مستخدم أول — 92%', time: 'قبل يومين', tone: 'accent' as const },
+  { title: 'طلبك قيد المراجعة', detail: 'مدير منتج في شركة تقنية', time: 'قبل 3 أيام', tone: 'neutral' as const },
+  { title: 'أكملت ملفك إلى 82%', detail: 'أضف مشروعاً لرفع النتيجة', time: 'قبل أسبوع', tone: 'accent' as const },
 ];
 
 export const companyActivity = [
-  { title: 'وصل طلب جديد على وظيفة مصمم تجربة مستخدم أول', detail: 'سارة الحربي · 94% تطابق', time: 'منذ 35 دقيقة', tone: 'primary' },
-  { title: 'تم تحديث ملف مرشح', detail: 'عمر الغامدي أضاف مشروعاً جديداً', time: 'منذ ساعتين', tone: 'accent' },
-  { title: 'اقترب موعد إغلاق وظيفة كاتب محتوى تقني', detail: 'تبقى 6 أيام · 12 متقدماً', time: 'أمس', tone: 'muted' },
+  { title: 'متقدم جديد بدرجة 94%', detail: 'سارة الحربي — مصمم منتجات', time: 'قبل ساعة', tone: 'primary' as const },
+  { title: 'تم نشر وظيفتك', detail: 'مهندس واجهات أمامية', time: 'قبل يوم', tone: 'primary' as const },
+  { title: '11 مرشح في القائمة المختصرة', detail: 'يحتاجون مراجعة', time: 'قبل يومين', tone: 'accent' as const },
+  { title: 'اكتمل التحقق', detail: 'ملفك أصبح موثقاً', time: 'قبل أسبوع', tone: 'primary' as const },
 ];
 
-export const adminActivity = [
-  { title: 'شركة جديدة بانتظار التحقق', detail: 'سِراج المالية · طلب تحقق منذ 28 دقيقة', time: 'الآن', tone: 'accent' },
-  { title: 'تم نشر وظيفة جديدة', detail: 'مهندس واجهات أمامية · مِداد للتقنية', time: 'منذ ساعة', tone: 'primary' },
-  { title: 'طلب يحتاج مراجعة', detail: 'تم الإبلاغ عن وصف وظيفة للتدقيق', time: 'منذ 3 ساعات', tone: 'muted' },
-];
-
-export const companyBenefits = ['ميزانية تعلم سنوية', 'تأمين صحي شامل', 'عمل مرن وعن بعد', 'فريق متعدد التخصصات'];
-
-export const adminPermissions = [
-  { label: 'إدارة الشركات', detail: 'التحقق، التفعيل، والتعليق', enabled: true },
-  { label: 'إدارة الوظائف', detail: 'المراجعة والتصنيف والإخفاء', enabled: true },
-  { label: 'إدارة المستخدمين', detail: 'الوصول إلى السجلات الأساسية', enabled: true },
-  { label: 'إعدادات النظام', detail: 'متاحة لمدير النظام الرئيسي فقط', enabled: false },
+export const companyBenefits = [
+  'عمل مرن',
+  'تأمين صحي',
+  'إجازة 25 يوم',
+  'ميزانية تعلم',
+  'أسهم في الشركة',
+  'فريق متعدد الثقافات',
 ];
