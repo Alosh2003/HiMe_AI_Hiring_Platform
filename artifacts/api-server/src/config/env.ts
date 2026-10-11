@@ -7,8 +7,12 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
+  LLM_PROVIDER: z.enum(["gemini", "openai", "none"]).default("none"),
   UPLOAD_DIR: z.string().default("./uploads"),
   CORS_ORIGIN: z.string().default("*"),
+  FRONTEND_URL: z.string().default("http://localhost:3000"),
   RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
   RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
 });
