@@ -7,7 +7,8 @@ import { eq } from "drizzle-orm";
 const OPENAI_API_KEY = process.env["OPENAI_API_KEY"] || "";
 const OPENAI_MODEL = process.env["OPENAI_MODEL"] || "gpt-4o-mini";
 const GEMINI_API_KEY = process.env["GEMINI_API_KEY"] || "";
-const GEMINI_MODEL = process.env["GEMINI_MODEL"] || "gemini-2.0-flash";
+// gemini-2.0-flash was retired; "flash-latest" tracks the current stable Flash.
+const GEMINI_MODEL = process.env["GEMINI_MODEL"] || "gemini-flash-latest";
 
 const LLM_PROVIDER = process.env["LLM_PROVIDER"] || (GEMINI_API_KEY ? "gemini" : OPENAI_API_KEY ? "openai" : "none");
 
@@ -94,6 +95,36 @@ export function getLLMProvider(): string {
   return LLM_PROVIDER;
 }
 
+/**
+ * Models often wrap JSON in markdown fences or add a sentence of prose.
+ * Strip both before parsing so a fenced reply doesn't silently fall back.
+ */
+function extractJson(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  // ```json ... ``` or ``` ... ```
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    // Fall back to the first balanced {...} block
+    const start = candidate.indexOf("{");
+    if (start === -1) throw new Error("No JSON object in LLM response");
+    let depth = 0;
+    for (let i = start; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) return JSON.parse(candidate.slice(start, i + 1));
+      }
+    }
+    throw new Error("Unbalanced JSON in LLM response");
+  }
+}
+
 // ─── CV Parsing ────────────────────────────────────────────────────────────
 
 export async function parseCvWithLLM(cvText: string): Promise<{
@@ -115,7 +146,12 @@ Return ONLY the JSON object, no other text.`;
 
   try {
     const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`);
-    return JSON.parse(result.content);
+    return extractJson(result.content) as {
+      headline: string;
+      summary: string;
+      skills: string[];
+      experiences: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
+    };
   } catch {
     return { headline: "", summary: "", skills: [], experiences: [] };
   }
@@ -240,7 +276,12 @@ Return ONLY the JSON object.`;
 
   try {
     const result = await callLLM(systemPrompt, `Job Description:\n${description}`);
-    return JSON.parse(result.content);
+    return extractJson(result.content) as {
+      requiredSkills: string[];
+      preferredSkills: string[];
+      experienceLevel: string;
+      industry: string;
+    };
   } catch {
     return { requiredSkills: [], preferredSkills: [], experienceLevel: "mid", industry: "" };
   }
