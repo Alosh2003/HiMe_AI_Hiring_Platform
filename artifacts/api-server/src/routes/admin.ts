@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { companiesTable, jobsTable, usersTable, applicationsTable, candidatesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole } from "../middleware/auth";
@@ -23,6 +24,31 @@ router.get("/stats", authMiddleware, requireRole("admin"), async (_req, res) => 
   });
 });
 
+router.get("/companies", authMiddleware, requireRole("admin"), async (req, res) => {
+  const { status } = req.query;
+
+  const conditions = status
+    ? [eq(companiesTable.verificationStatus, z.enum(["draft", "pending", "verified", "rejected"]).catch("pending").parse(status))]
+    : [];
+
+  const companies = await db.query.companiesTable.findMany({
+    where: conditions.length > 0 ? and(...conditions) : undefined,
+    orderBy: desc(companiesTable.createdAt),
+    limit: 200,
+  });
+
+  const userIds = companies.map((c) => c.userId);
+  const users = userIds.length > 0
+    ? await db.query.usersTable.findMany({ where: inArray(usersTable.id, userIds) })
+    : [];
+  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  res.json(companies.map((c) => ({
+    ...c,
+    contact: userMap.get(c.userId) ? { name: userMap.get(c.userId)!.name, email: userMap.get(c.userId)!.email } : null,
+  })));
+});
+
 router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
   const companyId = req.params.id as string;
 
@@ -35,8 +61,55 @@ router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), valid
     return;
   }
 
+  if (company.verificationStatus !== "pending") {
+    res.status(409).json({ error: `Cannot verify a company that is "${company.verificationStatus}"` });
+    return;
+  }
+
   const updated = await db.update(companiesTable)
-    .set({ verified: true, updatedAt: new Date() })
+    .set({
+      verified: true,
+      verificationStatus: "verified",
+      verificationNote: null,
+      verifiedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(companiesTable.id, company.id))
+    .returning();
+
+  res.json(updated[0]);
+});
+
+router.post("/companies/:id/reject", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
+  const companyId = req.params.id as string;
+
+  const parsed = z.object({ reason: z.string().min(5).max(1000) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "A rejection reason (5-1000 chars) is required" });
+    return;
+  }
+
+  const company = await db.query.companiesTable.findFirst({
+    where: eq(companiesTable.id, companyId),
+  });
+
+  if (!company) {
+    res.status(404).json({ error: "Company not found" });
+    return;
+  }
+
+  if (company.verificationStatus !== "pending") {
+    res.status(409).json({ error: `Cannot reject a company that is "${company.verificationStatus}"` });
+    return;
+  }
+
+  const updated = await db.update(companiesTable)
+    .set({
+      verified: false,
+      verificationStatus: "rejected",
+      verificationNote: parsed.data.reason,
+      updatedAt: new Date(),
+    })
     .where(eq(companiesTable.id, company.id))
     .returning();
 
@@ -56,7 +129,12 @@ router.post("/companies/:id/suspend", authMiddleware, requireRole("admin"), vali
   }
 
   const updated = await db.update(companiesTable)
-    .set({ verified: false, updatedAt: new Date() })
+    .set({
+      verified: false,
+      verificationStatus: "rejected",
+      verificationNote: "تم إيقاف الشركة من قبل إدارة المنصة.",
+      updatedAt: new Date(),
+    })
     .where(eq(companiesTable.id, company.id))
     .returning();
 

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useDemo } from '@/hooks/use-demo';
 import * as demoApi from '@/services/api/demo-api';
+import type { AdminCompany, VerificationStatus } from '@/services/api/demo-api';
 import { FeedbackState, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
 import { RoleShell } from '@/components/role-shell';
 import { WorkflowGuide } from '@/components/workflow-guide';
@@ -35,24 +36,59 @@ function AdminBadge({ verified }: { verified: boolean }) {
 }
 
 export function AdminCompaniesPage() {
-  const { data, loading, error, reload } = useDemo(demoApi.listCompanies, []);
+  const { data, loading, error, reload } = useDemo(() => demoApi.listCompaniesForReview(), []);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'verified' | 'pending'>('all');
-  const [verifiedIds, setVerifiedIds] = useState<string[]>([]);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
 
   if (loading) return <RoleShell role="admin"><LoadingState /></RoleShell>;
   if (error || !data) return <RoleShell role="admin"><FeedbackState error={error} retry={reload} /></RoleShell>;
 
+  const statusOf = (c: AdminCompany): VerificationStatus => c.verificationStatus ?? (c.verified ? 'verified' : 'draft');
+
   const filtered = data.filter((c) => {
-    const matchSearch = !search || c.name.includes(search) || c.industry.includes(search);
-    const isVerified = c.verified || verifiedIds.includes(c.id);
-    const matchFilter = filter === 'all' || (filter === 'verified' && isVerified) || (filter === 'pending' && !isVerified);
+    const matchSearch = !search || c.name.includes(search) || (c.industry || '').includes(search);
+    const matchFilter = filter === 'all' || statusOf(c) === filter;
     return matchSearch && matchFilter;
   });
 
-  const verify = (id: string) => setVerifiedIds((prev) => [...prev, id]);
+  const approve = async (id: string) => {
+    setBusyId(id);
+    setActionError('');
+    try {
+      await demoApi.approveCompany(id);
+      reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'تعذر اعتماد الشركة');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
-  const pendingCount = data.filter((c) => !c.verified && !verifiedIds.includes(c.id)).length;
+  const reject = async (id: string) => {
+    if (reason.trim().length < 5) {
+      setActionError('سبب الرفض مطلوب (5 أحرف على الأقل)');
+      return;
+    }
+    setBusyId(id);
+    setActionError('');
+    try {
+      await demoApi.rejectCompany(id, reason.trim());
+      setRejectingId(null);
+      setReason('');
+      reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'تعذر رفض الطلب');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pendingCount = data.filter((c) => statusOf(c) === 'pending').length;
+  const verifiedCount = data.filter((c) => statusOf(c) === 'verified').length;
 
   return (
     <RoleShell role="admin">
@@ -71,14 +107,17 @@ export function AdminCompaniesPage() {
       />
       <WorkflowGuide role="admin" current="companies" />
 
+      {actionError && <p className="mb-4 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-admin-company-action">{actionError}</p>}
+
       {/* Stats */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        {[
+      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+        {([
           ['إجمالي الشركات', data.length, 'text-foreground'],
-          ['موثقة', data.filter((c) => c.verified || verifiedIds.includes(c.id)).length + verifiedIds.length > data.filter(c => c.verified).length ? data.filter((c) => c.verified).length + verifiedIds.length : data.filter((c) => c.verified).length, 'text-primary'],
+          ['موثقة', verifiedCount, 'text-primary'],
           ['قيد المراجعة', pendingCount, 'text-accent-foreground'],
-        ].map(([label, value, color]) => (
-          <Card key={label as string}>
+          ['مرفوضة', data.filter((c) => statusOf(c) === 'rejected').length, 'text-destructive'],
+        ] as const).map(([label, value, color]) => (
+          <Card key={label}>
             <CardContent className="p-5">
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className={`mt-3 text-3xl font-bold ${color}`}>{value}</p>
@@ -100,7 +139,7 @@ export function AdminCompaniesPage() {
           />
         </div>
         <div className="flex gap-2">
-          {([['all', 'الكل'], ['verified', 'موثقة'], ['pending', 'قيد المراجعة']] as const).map(([val, label]) => (
+          {([['all', 'الكل'], ['pending', 'قيد المراجعة'], ['verified', 'موثقة'], ['rejected', 'مرفوضة']] as const).map(([val, label]) => (
             <button
               key={val}
               onClick={() => setFilter(val)}
@@ -122,36 +161,67 @@ export function AdminCompaniesPage() {
             لا توجد شركات تطابق البحث
           </div>
         ) : filtered.map((company) => {
-          const isVerified = company.verified || verifiedIds.includes(company.id);
+          const status = statusOf(company);
+          const isPending = status === 'pending';
           return (
-            <Card key={company.id}>
-              <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
+            <Card key={company.id} data-testid={`card-company-${company.id}`}>
+              <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-start">
                 <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-secondary text-primary">
                   <Building2 className="h-5 w-5" />
                 </div>
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-bold">{company.name}</p>
-                    <AdminBadge verified={isVerified} />
+                    <AdminBadge verified={status === 'verified'} />
+                    {status === 'pending' && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent-foreground">بانتظار القرار</span>}
+                    {status === 'rejected' && <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">مرفوضة</span>}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{company.industry} · {company.location} · {company.website}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{company.industry} · {company.location}{company.website ? ` · ${company.website}` : ''}</p>
                   <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">{company.description}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!isVerified && (
-                    <Button
-                      size="sm"
-                      onClick={() => verify(company.id)}
-                      data-testid={`button-verify-company-${company.id}`}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      تحقق
-                    </Button>
+                  {company.contact && (
+                    <p className="mt-2 text-[11px] text-muted-foreground" data-testid={`company-contact-${company.id}`}>
+                      مسؤول الحساب: {company.contact.name} — {company.contact.email}
+                    </p>
                   )}
-                  <Button variant="outline" size="sm" data-testid={`button-suspend-company-${company.id}`}>
-                    <Ban className="h-4 w-4" />
-                    تعليق
-                  </Button>
+                  {company.verificationNote && (
+                    <p className="mt-2 rounded-lg bg-destructive/5 p-2 text-[11px] text-destructive">سبب الرفض: {company.verificationNote}</p>
+                  )}
+
+                  {isPending && (
+                    <div className="mt-4 rounded-xl border border-border bg-secondary/40 p-4" data-testid={`reject-panel-${company.id}`}>
+                      {rejectingId === company.id ? (
+                        <div className="space-y-3">
+                          <label className="block text-xs font-semibold" htmlFor={`reason-${company.id}`}>سبب الرفض</label>
+                          <textarea
+                            id={`reason-${company.id}`}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            rows={3}
+                            placeholder="اشرح ما الذي يحتاج إلى تصحيح…"
+                            className="w-full rounded-lg border border-input bg-background p-3 text-sm"
+                            data-testid={`input-reject-reason-${company.id}`}
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => { setRejectingId(null); setReason(''); }} data-testid={`button-cancel-reject-${company.id}`}>إلغاء</Button>
+                            <Button size="sm" variant="destructive" onClick={() => reject(company.id)} disabled={busyId === company.id} data-testid={`button-confirm-reject-${company.id}`}>
+                              تأكيد الرفض
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => approve(company.id)} disabled={busyId === company.id} data-testid={`button-verify-company-${company.id}`}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            {busyId === company.id ? 'جارٍ…' : 'اعتماد'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { setRejectingId(company.id); setReason(''); setActionError(''); }} data-testid={`button-reject-company-${company.id}`}>
+                            <Ban className="h-4 w-4" />
+                            رفض
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -278,6 +278,30 @@ describe('authentication', () => {
     }, { timeout: 3000 });
   });
 
+  it('keeps the chosen role when terms are ticked in the same batch', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/register');
+
+    fireEvent.change(screen.getByTestId('input-register-name'), { target: { value: 'Noura' } });
+    fireEvent.change(screen.getByTestId('input-register-email'), { target: { value: 'n@example.com' } });
+    fireEvent.change(screen.getByTestId('input-register-password'), { target: { value: 'correct-password' } });
+
+    // Role and terms are separate state updates. With a stale closure one
+    // overwrites the other: either the account registers as a seeker, or the
+    // terms tick is lost and registration is rejected.
+    fireEvent.click(screen.getByTestId('button-role-company'));
+    fireEvent.click(screen.getByTestId('checkbox-terms'));
+    expect(screen.getByTestId('button-role-company')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('button-submit-register'));
+
+    // Landing on the company onboarding page proves the role survived.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/company/profile');
+    }, { timeout: 3000 });
+  });
+
   it('requires terms consent on registration', async () => {
     // GuestRoute bounces signed-in users off /register, so start signed out.
     localStorage.removeItem('hime_ai_token');
@@ -296,9 +320,25 @@ describe('authentication', () => {
     fireEvent.click(screen.getByTestId('checkbox-terms'));
     fireEvent.click(screen.getByTestId('button-submit-register'));
 
-    // A company signup lands on the company dashboard automatically.
+    // A brand-new company goes into onboarding, not straight to the dashboard.
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/company/dashboard');
+      expect(window.location.pathname).toBe('/company/profile');
+    }, { timeout: 3000 });
+  });
+
+  it('sends a brand-new seeker into CV onboarding', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/register');
+
+    fireEvent.change(screen.getByTestId('input-register-name'), { target: { value: 'Noura' } });
+    fireEvent.change(screen.getByTestId('input-register-email'), { target: { value: 'noura@example.com' } });
+    fireEvent.change(screen.getByTestId('input-register-password'), { target: { value: 'correct-password' } });
+    fireEvent.click(screen.getByTestId('checkbox-terms'));
+    fireEvent.click(screen.getByTestId('button-submit-register'));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/cv');
     }, { timeout: 3000 });
   });
 });
@@ -379,6 +419,7 @@ describe('CV upload', () => {
 
   it('accepts a valid PDF', async () => {
     setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
     renderAt('/seeker/cv');
 
     await screen.findByText('AI extracted profile');
@@ -387,7 +428,26 @@ describe('CV upload', () => {
       target: { files: [new File(['cv'], 'resume.pdf', { type: 'application/pdf' })] },
     });
 
-    expect(await screen.findByTestId('status-cv-success', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByTestId('status-cv-success', {}, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('shows what the model extracted and offers the next onboarding step', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/seeker/cv');
+
+    await screen.findByText('AI extracted profile');
+    fireEvent.change(screen.getByTestId('input-cv-upload'), {
+      target: { files: [new File(['cv'], 'resume.pdf', { type: 'application/pdf' })] },
+    });
+
+    // The extracted headline comes from the CV, not the placeholder.
+    expect(await screen.findByText('مهندس برمجيات أول', {}, { timeout: 5000 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-continue-profile'));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/profile');
+    }, { timeout: 3000 });
   });
 });
 

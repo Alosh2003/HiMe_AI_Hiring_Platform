@@ -112,6 +112,46 @@ router.get("/:id/jobs", validateUuidParam("id"), async (req, res) => {
   res.json(await attachSkills(jobs));
 });
 
+router.post("/verification/request", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+  const company = await db.query.companiesTable.findFirst({
+    where: eq(companiesTable.userId, req.user!.userId),
+  });
+
+  if (!company) {
+    res.status(400).json({ error: "Complete your company profile before requesting verification" });
+    return;
+  }
+
+  // Must actually have the required details filled in.
+  const missing: string[] = [];
+  if (!company.name?.trim()) missing.push("name");
+  if (!company.industry?.trim()) missing.push("industry");
+  if (!company.location?.trim()) missing.push("location");
+  if (!company.description?.trim() || company.description.trim().length < 20) missing.push("description");
+
+  if (missing.length > 0) {
+    res.status(400).json({ error: `Missing required fields: ${missing.join(", ")}`, missing });
+    return;
+  }
+
+  if (company.verificationStatus === "pending") {
+    res.status(409).json({ error: "Verification already under review" });
+    return;
+  }
+
+  const updated = await db.update(companiesTable)
+    .set({
+      verificationStatus: "pending",
+      verificationNote: null,
+      verificationRequestedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(companiesTable.id, company.id))
+    .returning();
+
+  res.json(updated[0]);
+});
+
 router.get("/me/profile", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
   const company = await db.query.companiesTable.findFirst({
     where: eq(companiesTable.userId, req.user!.userId),
@@ -147,8 +187,14 @@ router.post("/profile", authMiddleware, requireRole("company"), async (req: Auth
   });
 
   if (existing) {
+    // Editing after a rejection puts the company back in draft so they can
+    // fix the problem and resubmit; a pending review is left untouched.
+    const reopen = existing.verificationStatus === "rejected"
+      ? { verificationStatus: "draft" as const, verificationNote: null }
+      : {};
+
     const updated = await db.update(companiesTable)
-      .set(parsed.data)
+      .set({ ...parsed.data, ...reopen, updatedAt: new Date() })
       .where(eq(companiesTable.id, existing.id))
       .returning();
     res.json(updated[0]);
@@ -188,7 +234,7 @@ router.patch("/profile", authMiddleware, requireRole("company"), async (req: Aut
   }
 
   const updated = await db.update(companiesTable)
-    .set(parsed.data)
+    .set({ ...parsed.data, updatedAt: new Date() })
     .where(eq(companiesTable.id, company.id))
     .returning();
 

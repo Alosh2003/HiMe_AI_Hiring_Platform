@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
+import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import { useDemo } from '@/hooks/use-demo';
 import { useLanguage } from '@/i18n';
 import * as demoApi from '@/services/api/demo-api';
 import { adminActivity, adminPermissions, candidateActivity, companyActivity, companyBenefits } from '@/services/portal-data';
-import type { CandidateProfile, Company } from '@/types';
+import type { CandidateProfile, Company, VerificationStatus } from '@/types';
 import { Field, FeedbackState, JobCard, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
 import { RoleShell } from '@/components/role-shell';
 import { WorkflowGuide } from '@/components/workflow-guide';
@@ -96,23 +96,208 @@ export function CompanyDashboardPage() {
   </RoleShell>;
 }
 
+function VerificationBadge({ status }: { status: VerificationStatus }) {
+  const map = {
+    verified: { label: 'موثقة', cls: 'bg-primary/10 text-primary', icon: CheckCircle2 },
+    pending: { label: 'قيد المراجعة', cls: 'bg-accent/15 text-accent-foreground', icon: Clock3 },
+    rejected: { label: 'مرفوضة', cls: 'bg-destructive/10 text-destructive', icon: CircleAlert },
+    draft: { label: 'غير مكتملة', cls: 'bg-muted text-muted-foreground', icon: CircleDashed },
+  } as const;
+  const { label, cls, icon: Icon } = map[status] ?? map.draft;
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${cls}`} data-testid={`badge-verification-${status}`}>
+      <Icon className="me-1 inline h-3 w-3" />{label}
+    </span>
+  );
+}
+
+function VerificationBanner({ status, note }: { status: VerificationStatus; note?: string | null }) {
+  if (status === 'verified') {
+    return (
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4" data-testid="banner-verification-approved">
+        <p className="text-sm font-bold text-primary">تم التحقق من بيانات الشركة</p>
+        <p className="mt-1 text-xs text-muted-foreground">يمكنك نشر الوظائف واستقبال طلبات التقديم.</p>
+      </div>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <div className="rounded-xl border border-accent/30 bg-accent/5 p-4" data-testid="banner-verification-pending">
+        <p className="text-sm font-bold">طلب التحقق قيد المراجعة</p>
+        <p className="mt-1 text-xs text-muted-foreground">أرسلنا بياناتك إلى إدارة المنصة. سيصلك القرار هنا.</p>
+      </div>
+    );
+  }
+  if (status === 'rejected') {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4" data-testid="banner-verification-rejected">
+        <p className="text-sm font-bold text-destructive">تم رفض طلب التحقق</p>
+        {note && <p className="mt-1 text-xs leading-6 text-muted-foreground">{note}</p>}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-border bg-secondary/40 p-4" data-testid="banner-verification-draft">
+      <p className="text-sm font-bold">أكمل بياناتك واطلب التحقق</p>
+      <p className="mt-1 text-xs text-muted-foreground">تحتاج المنصة إلى بيانات，准确ة قبل عرض شارة التحقق أمام المرشحين.</p>
+    </div>
+  );
+}
+
 export function CompanyProfilePage() {
   const { data: rawData, loading } = useDemo(demoApi.company, []);
   const data = typeof rawData === 'function' ? null : rawData;
-  const [draft, setDraft] = useState<Company | null>(null);
-  const [saved, setSaved] = useState(false);
-  if (loading || (!data && !draft)) return <RoleShell role="company"><LoadingState /></RoleShell>;
-  const company = draft || data!;
-  const update = (key: keyof Company, value: string) => { setDraft({ ...company, [key]: value }); setSaved(false); };
+  const [draft, setDraft] = useState<Partial<Company> | null>(null);
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [error, setError] = useState('');
+  const [requesting, setRequesting] = useState(false);
+  const [current, setCurrent] = useState<Company | null>(null);
+
+  const company = { ...(current ?? data ?? {}), ...draft } as Company;
+  const status = ((current ?? data)?.verificationStatus ?? 'draft') as VerificationStatus;
+
+  const update = (key: keyof Company, value: string) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    setState('idle');
+  };
+
+  const requiredMissing = [
+    !company.name?.trim() && 'اسم الشركة',
+    !company.industry?.trim() && 'المجال',
+    !company.location?.trim() && 'الموقع',
+    (!company.description || company.description.trim().length < 20) && 'وصف الشركة (20 حرفاً على الأقل)',
+    // The API validates website as a URL; catch it here so the failure is
+    // obvious instead of a generic 400.
+    (!!company.website?.trim() && !/^https?:\/\/\S+\.\S+$/.test(company.website.trim())) && 'الموقع الإلكتروني (مثال: https://example.com)',
+  ].filter(Boolean) as string[];
+
+  /** Persists the form. Returns the saved company, or null when it failed. */
+  const persist = async (): Promise<Company | null> => {
+    try {
+      const saved = await demoApi.saveCompanyProfile({
+        name: company.name,
+        industry: company.industry,
+        location: company.location,
+        website: company.website || undefined,
+        description: company.description || undefined,
+      });
+      setCurrent(saved);
+      setDraft(null);
+      setState('saved');
+      return saved;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر الحفظ');
+      setState('error');
+      return null;
+    }
+  };
+
+  const save = async () => {
+    setState('saving');
+    setError('');
+    await persist();
+  };
+
+  const submitForReview = async () => {
+    if (requiredMissing.length > 0) return;
+    setRequesting(true);
+    setError('');
+    try {
+      // Persist pending edits first so the admin reviews current data, and
+      // stop if that failed — otherwise the verification request fails with
+      // a confusing "complete your profile" message.
+      setState('saving');
+      const saved = await persist();
+      if (!saved) return;
+
+      const updated = await demoApi.requestVerification();
+      setCurrent(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر إرسال الطلب');
+    } finally {
+      setRequesting(false);
+      setState((s) => (s === 'saving' ? 'idle' : s));
+    }
+  };
+
+  if (loading && !data && !draft) return <RoleShell role="company"><LoadingState /></RoleShell>;
+
   return <RoleShell role="company">
-    <PageHeader eyebrow="ملف الشركة" title="هوية تساعد المرشحين على اختياركم." description="عرّفوا الناس بالعمل الذي تبنونه، والثقافة التي سيجدونها بعد الانضمام." action={<Button onClick={() => setSaved(true)} data-testid="button-save-full-company-profile">{saved ? <CheckCircle2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}{saved ? 'تم حفظ التغييرات' : 'حفظ التغييرات'}</Button>} />
+    <PageHeader eyebrow="ملف الشركة" title="هوية تساعد المرشحين على اختياركم." description="عرّفوا الناس بالعمل الذي تبنونه، والثقافة التي سيجدونها بعد الانضمام." action={
+      <div className="flex gap-2">
+        <Button onClick={save} disabled={state === 'saving'} data-testid="button-save-full-company-profile">
+          {state === 'saved' ? <CheckCircle2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+          {state === 'saving' ? 'جارٍ الحفظ…' : state === 'saved' ? 'تم الحفظ' : 'حفظ التغييرات'}
+        </Button>
+      </div>
+    } />
     <WorkflowGuide role="company" current="profile" />
-    <div className="mb-6 overflow-hidden rounded-2xl border border-border bg-card"><div className="h-28 bg-[linear-gradient(110deg,hsl(var(--primary)),#1e666a_55%,#f2c66d)]" /><div className="-mt-10 flex flex-col gap-4 p-5 md:flex-row md:items-end md:justify-between md:p-7"><div className="flex items-end gap-4"><div className="grid h-20 w-20 place-items-center rounded-2xl border-4 border-card bg-secondary text-2xl font-bold text-primary"><Building2 className="h-9 w-9" /></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold">{company.name}</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary"><CheckCircle2 className="me-1 inline h-3 w-3" />موثقة</span></div><p className="mt-1 text-sm text-muted-foreground">{company.industry} · {company.location}</p></div></div><div className="flex gap-2"><span className="rounded-lg border border-border px-3 py-2 text-xs">51–200 موظف</span><span className="rounded-lg border border-border px-3 py-2 text-xs">منذ 2022</span></div></div></div>
-    <div className="grid gap-6 xl:grid-cols-[1fr_320px]"><div className="space-y-6">
-      <Card><CardHeader><CardTitle className="text-base">المعلومات الأساسية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2"><Field label="اسم الشركة" value={company.name} onChange={(value) => update('name', value)} /><Field label="المجال" value={company.industry} onChange={(value) => update('industry', value)} /><Field label="الموقع" value={company.location} onChange={(value) => update('location', value)} /><Field label="الموقع الإلكتروني" value={company.website} onChange={(value) => update('website', value)} /><div className="md:col-span-2"><Field label="عن الشركة" value={company.description} onChange={(value) => update('description', value)} multiline /></div></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">ثقافة العمل والمزايا</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2">{companyBenefits.map((benefit) => <label key={benefit} className="flex items-center gap-3 rounded-xl border border-border p-4 text-sm"><input type="checkbox" defaultChecked className="accent-primary" /><span>{benefit}</span></label>)}</div><div className="mt-5"><Field label="كيف تصفون بيئة العمل؟" value="نعمل كفريق صغير متعدد التخصصات، نثق بالملكية ونحتفل بالتعلم المستمر." onChange={() => undefined} multiline /></div></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">تفضيلات التوظيف</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-3"><label className="text-sm font-semibold">حجم الفريق<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" defaultValue="51–200"><option>1–10</option><option>11–50</option><option>51–200</option><option>201–500</option></select></label><label className="text-sm font-semibold">نمط العمل<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" defaultValue="مرن"><option>حضوري</option><option>مرن</option><option>عن بعد</option></select></label><label className="text-sm font-semibold">التوظيف الآن<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" defaultValue="نشط"><option>نشط</option><option>متوقف مؤقتاً</option></select></label></CardContent></Card>
-    </div><div className="space-y-6"><Card className="bg-secondary/50"><CardHeader><CardTitle className="text-base">معاينة عامة</CardTitle></CardHeader><CardContent><div className="rounded-xl border border-border bg-card p-4"><p className="font-bold">{company.name}</p><p className="mt-1 text-xs text-muted-foreground">{company.industry}</p><p className="mt-4 text-xs leading-6 text-muted-foreground">{company.description}</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-[10px]">موثقة</span><span className="rounded-full bg-muted px-2.5 py-1 text-[10px]">عمل مرن</span></div></div><button className="mt-4 w-full rounded-lg border border-border px-3 py-2.5 text-xs font-bold">فتح صفحة الشركة <ArrowUpLeft className="inline h-3 w-3" /></button></CardContent></Card><Card><CardHeader><CardTitle className="text-base">بيانات التواصل</CardTitle></CardHeader><CardContent className="space-y-4 text-xs"><div className="flex items-center gap-3"><Mail className="h-4 w-4 text-primary" /><span>talent@medad.example</span></div><div className="flex items-center gap-3"><MapPin className="h-4 w-4 text-primary" /><span>{company.location}</span></div><div className="flex items-center gap-3"><Globe2 className="h-4 w-4 text-primary" /><span>{company.website}</span></div></CardContent></Card><Card><CardHeader><CardTitle className="text-base">حالة التحقق</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3 rounded-xl bg-primary/5 p-3"><ShieldCheck className="h-5 w-5 text-primary" /><p className="text-xs leading-5">تم التحقق من بيانات الشركة. يمكنك الآن نشر الوظائف واستقبال الطلبات.</p></div></CardContent></Card></div></div>
+
+    <VerificationBanner status={status} note={(current ?? data)?.verificationNote} />
+
+    {error && <p className="mt-4 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-company-profile">{error}</p>}
+
+    <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="h-28 bg-[linear-gradient(110deg,hsl(var(--primary)),#1e666a_55%,#f2c66d)]" />
+      <div className="-mt-10 flex flex-col gap-4 p-5 md:flex-row md:items-end md:justify-between md:p-7">
+        <div className="flex items-end gap-4">
+          <div className="grid h-20 w-20 place-items-center rounded-2xl border-4 border-card bg-secondary text-2xl font-bold text-primary"><Building2 className="h-9 w-9" /></div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold">{company.name || 'اسم الشركة'}</h2>
+              <VerificationBadge status={status} />
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{company.industry} · {company.location}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_320px]">
+      <div className="space-y-6">
+        <Card><CardHeader><CardTitle className="text-base">المعلومات الأساسية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2">
+          <Field label="اسم الشركة *" value={company.name} onChange={(v) => update('name', v)} />
+          <Field label="المجال *" value={company.industry} onChange={(v) => update('industry', v)} />
+          <Field label="الموقع *" value={company.location} onChange={(v) => update('location', v)} />
+          <Field label="الموقع الإلكتروني" value={company.website} onChange={(v) => update('website', v)} />
+          <div className="md:col-span-2"><Field label="عن الشركة *" value={company.description} onChange={(v) => update('description', v)} multiline /></div>
+        </CardContent></Card>
+      </div>
+
+      <div className="space-y-6">
+        <Card data-testid="card-verification-request">
+          <CardHeader><CardTitle className="text-base">طلب التحقق</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            {status === 'pending' ? (
+              <p className="rounded-lg bg-accent/10 p-3 text-xs leading-6" data-testid="status-verification-pending">
+                طلبك قيد المراجعة لدى إدارة المنصة. سنعلمك فور اتخاذ القرار.
+              </p>
+            ) : status === 'verified' ? (
+              <p className="rounded-lg bg-primary/10 p-3 text-xs leading-6" data-testid="status-verification-approved">
+                تم التحقق من بياناتك، وشارة التحقق ظاهرة للمرشحين.
+              </p>
+            ) : (
+              <>
+                {requiredMissing.length > 0 && (
+                  <div className="rounded-lg bg-muted p-3 text-xs leading-6" data-testid="list-verification-missing">
+                    <p className="font-bold">أكمل الحقول التالية قبل الإرسال:</p>
+                    <ul className="mt-1 list-inside list-disc">{requiredMissing.map((f) => <li key={f}>{f}</li>)}</ul>
+                  </div>
+                )}
+                {status === 'rejected' && (
+                  <p className="rounded-lg bg-destructive/10 p-3 text-xs leading-6 text-destructive" data-testid="status-verification-rejected">
+                    تم رفض الطلبPreviously. عدّل البيانات وأعد الإرسال.
+                  </p>
+                )}
+                <Button className="w-full" onClick={submitForReview} disabled={requiredMissing.length > 0 || requesting} data-testid="button-request-verification">
+                  {requesting ? 'جارٍ الإرسال…' : 'إرسال طلب التحقق'}
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   </RoleShell>;
 }
 

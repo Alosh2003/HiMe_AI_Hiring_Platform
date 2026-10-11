@@ -9,7 +9,7 @@ import { useDemo } from '@/hooks/use-demo';
 import { DashboardLayout } from '@/layouts';
 import { useAuth } from '@/contexts/auth-context';
 import { SocialAuth } from '@/components/social-auth';
-import { resolvePostAuthRedirect, readNextParam, roleHome } from '@/lib/routes';
+import { resolvePostAuthRedirect, readNextParam, resolveRegistrationRedirect, roleHome } from '@/lib/routes';
 import { login, register, getJob, apply as applyToJob, getProfile, uploadCv } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
@@ -34,7 +34,7 @@ function AuthFrame({ title, subtitle, side, children }: { title: string; subtitl
           <h1 className="max-w-md text-4xl font-bold leading-tight">{side}</h1>
           <div className="mt-8 flex gap-3 text-sm text-sidebar-foreground/60"><ShieldCheck className="h-5 w-5 text-[#f2c66d]" />قرارات مهنية أكثر وعياً</div>
         </div>
-        <p className="text-xs text-sidebar-foreground/50">واجهة آمنة جاهزة للربط بواجهة REST.</p>
+        <p className="text-xs text-sidebar-foreground/50">بياناتك محفوظة بأمان، ونستخدم الذكاء الاصطناعي لمساعدتك على اتخاذ قرار أوضح.</p>
       </div>
       <div className="flex flex-col p-5 md:p-10">
         <div className="mb-16 flex items-center justify-between lg:justify-end">
@@ -73,6 +73,11 @@ export function LoginPage() {
   const [pending, setPending] = useState(false);
   const [role, setRole] = useState<'seeker' | 'company' | 'admin'>('seeker');
 
+  // Functional update: a stale `values` closure can otherwise drop a sibling
+  // field when two updates land in the same React batch.
+  const field = (key: string) => (value: string) =>
+    setValues((prev) => ({ ...prev, [key]: value }));
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = validateLogin(values);
@@ -101,8 +106,8 @@ export function LoginPage() {
   return (
     <AuthFrame title="مرحباً بعودتك" subtitle="مساحتك المهنية، كما تركتها." side="رؤيتك المهنية تستحق مساحة واضحة.">
       <form onSubmit={submit} noValidate className="space-y-5" aria-label="تسجيل الدخول">
-        <FieldWithError label="البريد الإلكتروني" value={values.email} onChange={(email) => setValues({ ...values, email })} type="email" placeholder="name@example.com" autoComplete="email" error={errors.email} testId="input-login-email" />
-        <FieldWithError label="كلمة المرور" value={values.password} onChange={(password) => setValues({ ...values, password })} type="password" placeholder="8 أحرف على الأقل" autoComplete="current-password" error={errors.password} testId="input-login-password" />
+        <FieldWithError label="البريد الإلكتروني" value={values.email} onChange={(email) => field('email')(email)} type="email" placeholder="name@example.com" autoComplete="email" error={errors.email} testId="input-login-email" />
+        <FieldWithError label="كلمة المرور" value={values.password} onChange={(password) => field('password')(password)} type="password" placeholder="8 أحرف على الأقل" autoComplete="current-password" error={errors.password} testId="input-login-password" />
         <div className="flex items-center justify-between text-xs">
           <label className="flex items-center gap-2"><input type="checkbox" data-testid="checkbox-remember" /> تذكرني</label>
           <button type="button" className="font-bold text-primary" data-testid="button-forgot-password">نسيت كلمة المرور؟</button>
@@ -151,6 +156,11 @@ export function RegisterPage() {
   const [errors, setErrors] = useState<ReturnType<typeof validateRegistration>>({});
   const [pending, setPending] = useState(false);
 
+  // Functional update: a stale `values` closure can otherwise drop a sibling
+  // field when two updates land in the same React batch.
+  const field = (key: string) => (value: string | boolean) =>
+    setValues((prev) => ({ ...prev, [key]: value }));
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = validateRegistration(values);
@@ -159,9 +169,10 @@ export function RegisterPage() {
 
     setPending(true);
     try {
-      await performRegister(values.name, values.email, values.password, values.role);
-      const signedUp = JSON.parse(localStorage.getItem('hime_ai_user') || '{}');
-      navigate(roleHome(signedUp.role || values.role));
+      const result = await performRegister(values.name, values.email, values.password, values.role);
+      // First-time accounts drop into onboarding: seeker -> upload CV,
+      // company -> fill in company details.
+      navigate(resolveRegistrationRedirect(values.role, result.onboarding !== false));
     } catch (err) {
       setErrors({ email: err instanceof Error ? err.message : 'Registration failed' });
     } finally {
@@ -172,18 +183,18 @@ export function RegisterPage() {
   return (
     <AuthFrame title="ابدأ من مكانك" subtitle="أنشئ مساحة تساعدك على الخطوة التالية." side="سواء كنت تبحث عن فرصة أو عن الشخص المناسب، ابدأ بمعلومة أوضح.">
       <form onSubmit={submit} noValidate className="space-y-4" aria-label="إنشاء حساب">
-        <FieldWithError label="الاسم الكامل" value={values.name} onChange={(name) => setValues({ ...values, name })} placeholder="اكتب اسمك" autoComplete="name" error={errors.name} testId="input-register-name" />
-        <FieldWithError label="البريد الإلكتروني" value={values.email} onChange={(email) => setValues({ ...values, email })} type="email" placeholder="name@example.com" autoComplete="email" error={errors.email} testId="input-register-email" />
-        <FieldWithError label="كلمة المرور" value={values.password} onChange={(password) => setValues({ ...values, password })} type="password" placeholder="8 أحرف على الأقل" autoComplete="new-password" error={errors.password} testId="input-register-password" />
+        <FieldWithError label="الاسم الكامل" value={values.name} onChange={(name) => field('name')(name)} placeholder="اكتب اسمك" autoComplete="name" error={errors.name} testId="input-register-name" />
+        <FieldWithError label="البريد الإلكتروني" value={values.email} onChange={(email) => field('email')(email)} type="email" placeholder="name@example.com" autoComplete="email" error={errors.email} testId="input-register-email" />
+        <FieldWithError label="كلمة المرور" value={values.password} onChange={(password) => field('password')(password)} type="password" placeholder="8 أحرف على الأقل" autoComplete="new-password" error={errors.password} testId="input-register-password" />
         <div>
           <p className="mb-2 text-sm font-semibold">نوع الحساب</p>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setValues({ ...values, role: 'seeker' })} className={`rounded-lg border p-3 text-sm font-semibold ${values.role === 'seeker' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={values.role === 'seeker'} data-testid="button-role-seeker">باحث عن عمل</button>
-            <button type="button" onClick={() => setValues({ ...values, role: 'company' })} className={`rounded-lg border p-3 text-sm font-semibold ${values.role === 'company' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={values.role === 'company'} data-testid="button-role-company">شركة</button>
+            <button type="button" onClick={() => field('role')('seeker')} className={`rounded-lg border p-3 text-sm font-semibold ${values.role === 'seeker' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={values.role === 'seeker'} data-testid="button-role-seeker">باحث عن عمل</button>
+            <button type="button" onClick={() => field('role')('company')} className={`rounded-lg border p-3 text-sm font-semibold ${values.role === 'company' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`} aria-pressed={values.role === 'company'} data-testid="button-role-company">شركة</button>
           </div>
         </div>
         <label className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
-          <input type="checkbox" checked={values.termsAccepted} onChange={(event) => setValues({ ...values, termsAccepted: event.target.checked })} aria-invalid={Boolean(errors.termsAccepted)} data-testid="checkbox-terms" />
+          <input type="checkbox" checked={values.termsAccepted} onChange={(event) => field('termsAccepted')(event.target.checked)} aria-invalid={Boolean(errors.termsAccepted)} data-testid="checkbox-terms" />
           <span>أوافق على شروط الاستخدام وسياسة الخصوصية.</span>
         </label>
         {errors.termsAccepted && <p className="text-xs text-destructive" role="alert" data-testid="error-register-terms">{errors.termsAccepted}</p>}
@@ -243,9 +254,11 @@ export function JobDetailsPage() {
 
 export function SeekerCvPage() {
   const { t } = useLanguage();
+  const [, navigate] = useLocation();
   const { data: profile, loading } = useDemo(getProfile, []);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [extracted, setExtracted] = useState<{ headline?: string; summary?: string; skills?: string[] } | null>(null);
   const [uploadError, setUploadError] = useState('');
 
   const upload = async (file?: File) => {
@@ -256,10 +269,13 @@ export function SeekerCvPage() {
 
     setUploading(true);
     try {
-      await uploadCv({ name: file.name, size: file.size });
+      const result = await uploadCv(file);
       setUploaded(true);
-    } catch {
-      setUploadError('تعذر رفع السيرة الذاتية حالياً. حاول مرة أخرى.');
+      // Show what the model actually pulled out before moving on.
+      const parsed = (result as { cvParsedData?: { headline?: string; summary?: string; skills?: string[] } }).cvParsedData;
+      setExtracted(parsed ?? { headline: profile?.headline, summary: profile?.summary, skills: profile?.skills?.map((s) => s.name) });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'تعذر رفع السيرة الذاتية حالياً. حاول مرة أخرى.');
     } finally {
       setUploading(false);
     }
@@ -282,9 +298,14 @@ export function SeekerCvPage() {
               {uploading && <div className="mt-5 h-1.5 w-48 overflow-hidden rounded-full bg-muted" data-testid="status-cv-uploading"><div className="h-full w-2/3 animate-pulse rounded-full bg-accent" /></div>}
             </label>
             {uploadError && <p className="mt-3 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" data-testid="error-cv-upload" role="alert">{uploadError}</p>}
-            {uploaded && <p className="mt-3 rounded-lg bg-primary/10 p-3 text-xs text-primary" data-testid="status-cv-success" role="status">تم رفع الملف وبدء تحليل المعلومات.</p>}
+            {uploaded && <div className="mt-3 space-y-3 rounded-lg bg-primary/10 p-4" data-testid="status-cv-success" role="status">
+              <p className="text-xs font-semibold text-primary">تم رفع الملف واستخراج المعلومات تلقائياً.</p>
+              <Button className="w-full" onClick={() => navigate('/seeker/profile')} data-testid="button-continue-profile">
+                متابعة إكمال بقية المعلومات <ArrowUpLeft className="h-4 w-4" />
+              </Button>
+            </div>}
           </CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />AI extracted profile</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-secondary/60 p-5"><div className="flex items-center justify-between"><span className="text-sm font-bold">مصمم منتجات</span><span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">مستخرج</span></div><p className="mt-3 text-xs leading-6 text-muted-foreground">مصمم منتجات بخبرة 4 سنوات في بناء تجارب رقمية عربية، مع تركيز على البحث وأنظمة التصميم.</p><div className="mt-4 flex flex-wrap gap-2">{profile.skills.slice(0, 5).map((skill) => <span key={skill.id} className="rounded-md bg-background px-2 py-1 text-[11px]">{skill.name}</span>)}</div></div><p className="mt-4 flex items-start gap-2 text-xs leading-6 text-muted-foreground"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-accent" />{t('review')} {t('decision')}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />AI extracted profile</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-secondary/60 p-5"><div className="flex items-center justify-between"><span className="text-sm font-bold">{extracted?.headline || profile.headline || 'مصمم منتجات'}</span><span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">مستخرج</span></div><p className="mt-3 text-xs leading-6 text-muted-foreground">{extracted?.summary || profile.summary || 'مصمم منتجات بخبرة 4 سنوات في بناء تجارب رقمية عربية، مع تركيز على البحث وأنظمة التصميم.'}</p><div className="mt-4 flex flex-wrap gap-2">{(extracted?.skills?.length ? extracted.skills : profile.skills.map((s) => s.name)).slice(0, 6).map((name, i) => <span key={`${name}-${i}`} className="rounded-md bg-background px-2 py-1 text-[11px]">{name}</span>)}</div></div><p className="mt-4 flex items-start gap-2 text-xs leading-6 text-muted-foreground"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-accent" />{t('review')} {t('decision')}</p></CardContent></Card>
         </div>
         <Card className="h-fit"><CardHeader><CardTitle className="text-base">حالة الملف</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-primary"><CheckCircle2 className="h-5 w-5" /></div><div><p className="text-sm font-bold">تم التحليل</p><p className="text-xs text-muted-foreground">آخر تحديث: اليوم</p></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />المعلومات الأساسية</div><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />الخبرة والمهارات</div><div className="flex items-center gap-2 text-muted-foreground"><span className="h-4 w-4 rounded-full border border-border" />مراجعة واعتماد</div></div></CardContent></Card>
       </div>

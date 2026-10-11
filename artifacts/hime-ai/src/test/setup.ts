@@ -19,6 +19,27 @@ const DEFAULT_USER = {
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
 
+/**
+ * jsdom installs its own File/FormData, but MSW's fetch interceptor reads the
+ * Node/undici internals (_bytes) and throws "Cannot read properties of
+ * undefined". Swapping in the Node implementations lets multipart uploads —
+ * i.e. the CV upload — behave in tests exactly as they do in the browser.
+ */
+beforeAll(() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { File: NodeFile } = require('node:buffer') as { File: typeof File };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { FormData: UndiciFormData } = require('undici') as { FormData: typeof FormData };
+
+    const g = globalThis as unknown as Record<string, unknown>;
+    g.File = NodeFile;
+    g.FormData = UndiciFormData;
+  } catch {
+    // Leave jsdom's versions in place; JSON requests still work.
+  }
+});
+
 // Reset to a known signed-in state BEFORE every test
 beforeAll(() => {
   window.localStorage.setItem(TOKEN_KEY, 'test-jwt-token');

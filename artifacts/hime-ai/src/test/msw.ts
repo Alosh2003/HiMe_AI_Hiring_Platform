@@ -113,6 +113,7 @@ export const handlers = [
     return HttpResponse.json(
       {
         token: authToken,
+        onboarding: true,
         user: { ...authUser, id: role === 'company' ? TEST_IDS.company1 : TEST_IDS.user1, name: body.name ?? authUser.name, email: body.email ?? authUser.email, role },
       },
       { status: 201 },
@@ -169,6 +170,33 @@ export const handlers = [
     return HttpResponse.json([job]);
   }),
 
+  // Company profile + verification workflow
+  http.post('*/api/companies/profile', async ({ request }) => {
+    await delay(10);
+    const body = (await request.json()) as Partial<typeof company>;
+    return HttpResponse.json({ ...company, ...body });
+  }),
+  http.post('*/api/companies/verification/request', async () => {
+    await delay(10);
+    return HttpResponse.json({ ...company, verificationStatus: 'pending', verificationRequestedAt: new Date().toISOString() });
+  }),
+
+  // Admin company review
+  http.get('*/api/admin/companies', async () => {
+    await delay(10);
+    return HttpResponse.json([
+      { ...company, verificationStatus: 'pending', contact: { name: 'ليان العتيبي', email: 'company@hime.ai' } },
+    ]);
+  }),
+  http.post(`*/api/admin/companies/${TEST_IDS.company1}/verify`, async () => {
+    await delay(10);
+    return HttpResponse.json({ ...company, verified: true, verificationStatus: 'verified' });
+  }),
+  http.post(`*/api/admin/companies/${TEST_IDS.company1}/reject`, async () => {
+    await delay(10);
+    return HttpResponse.json({ ...company, verified: false, verificationStatus: 'rejected', verificationNote: 'بيانات غير كافية' });
+  }),
+
   // Candidates
   http.get('*/api/candidates/profile', async () => {
     await delay(10);
@@ -180,7 +208,17 @@ export const handlers = [
   }),
   http.post('*/api/candidates/cv', async () => {
     await delay(50);
-    return HttpResponse.json({ ...candidate, cvUrl: '/files/test.pdf' });
+    // Mirrors the real response: the parsed CV plus the updated profile.
+    return HttpResponse.json({
+      ...candidate,
+      cvUrl: '/files/test.pdf',
+      cvParsedData: {
+        headline: 'مهندس برمجيات أول',
+        summary: 'خبرة في بناء أنظمة قابلة للتوسع.',
+        skills: ['Node.js', 'PostgreSQL', 'TypeScript'],
+      },
+      file: { id: 'f-1', name: 'resume.pdf', url: '/files/test.pdf', size: 1024 },
+    });
   }),
 
   // Applications

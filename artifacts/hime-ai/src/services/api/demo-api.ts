@@ -1,11 +1,11 @@
-import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchResult, User } from '@/types';
+import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchResult, User, VerificationStatus } from '@/types';
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
 
 const wait = (ms = 260) => new Promise((resolve) => setTimeout(resolve, ms));
 const skills = (names: string[]): import('@/types').Skill[] => names.map((name, index) => ({ id: `${name.toLowerCase().replaceAll(' ', '-')}-${index}`, name, category: 'professional' }));
-const demoCompany: Company = { id: 'c-1', name: 'مِداد للتقنية', industry: 'تقنية المعلومات', location: 'الرياض، السعودية', website: 'medad.example', description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً وإنسانية.', teamSize: '51–200', verified: true };
-const demoCompanies: Company[] = [demoCompany, { id: 'c-2', name: 'سِراج المالية', industry: 'التقنية المالية', location: 'دبي، الإمارات', website: 'siraj.example', description: 'منصة مالية رقمية للجيل القادم.', teamSize: '11–50', verified: true }, { id: 'c-3', name: 'أثر للاستشارات', industry: 'الاستشارات', location: 'جدة، السعودية', website: 'athar.example', description: 'نحو قرارات أعمال أفضل في المنطقة.', teamSize: '51–200', verified: false }];
+let demoCompany: Company = { id: 'c-1', name: 'مِداد للتقنية', industry: 'تقنية المعلومات', location: 'الرياض، السعودية', website: 'medad.example', description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً وإنسانية.', teamSize: '51–200', verified: true };
+let demoCompanies: Company[] = [demoCompany, { id: 'c-2', name: 'سِراج المالية', industry: 'التقنية المالية', location: 'دبي، الإمارات', website: 'siraj.example', description: 'منصة مالية رقمية للجيل القادم.', teamSize: '11–50', verified: true }, { id: 'c-3', name: 'أثر للاستشارات', industry: 'الاستشارات', location: 'جدة، السعودية', website: 'athar.example', description: 'نحو قرارات أعمال أفضل في المنطقة.', teamSize: '51–200', verified: false }];
 const makeJob = (id: string, title: string, c: Company, extra: Partial<Job> = {}): Job => ({ id, companyId: c.id, company: c, title, description: 'نبحث عن شخص شغوف يبني منتجات مؤثرة ويحوّل المسائل المعقدة إلى تجارب بسيطة. ستعمل مع فريق متعدد التخصصات في بيئة تتعلم فيها كل يوم.', industry: c.industry, location: c.location, contract: 'full-time', experience: 'mid', education: 'بكالوريوس أو خبرة معادلة', requiredSkills: skills(['Product strategy', 'Research', 'Communication']), preferredSkills: skills(['Analytics', 'Figma']), salary: '18,000 – 24,000 ر.س', deadline: '2025-06-30', postedAt: 'منذ يومين', applicants: 24, status: 'active', ...extra });
 const demoJobs: Job[] = [makeJob('j-1', 'مصمم تجربة مستخدم أول', demoCompany, { requiredSkills: skills(['Figma', 'User research', 'Arabic UX']), preferredSkills: skills(['Design systems', 'Prototyping']), experience: 'senior', applicants: 18 }), makeJob('j-2', 'مدير منتج — منصات الذكاء الاصطناعي', demoCompanies[1], { requiredSkills: skills(['Product strategy', 'AI products', 'Roadmapping']), preferredSkills: skills(['B2B SaaS', 'Analytics']), salary: '22,000 – 30,000 ر.س', applicants: 31 }), makeJob('j-3', 'مهندس واجهات أمامية', demoCompany, { requiredSkills: skills(['React', 'TypeScript', 'CSS']), preferredSkills: skills(['Testing', 'Accessibility']), location: 'الرياض أو عن بعد', applicants: 42 }), makeJob('j-4', 'كاتب محتوى تقني', demoCompanies[2], { requiredSkills: skills(['Arabic writing', 'Content strategy', 'SEO']), preferredSkills: skills(['English', 'B2B']), contract: 'contract', experience: 'entry', salary: '9,000 – 13,000 ر.س', applicants: 12 })];
 const demoExperiences = [{ id: 'e-1', role: 'مصمم منتجات', company: 'ستوديو رِواق', location: 'الرياض', startDate: '2021', endDate: 'الآن', description: 'تصميم تجارب رقمية لمنتجات مالية وتعليمية.' }];
@@ -19,19 +19,32 @@ function getToken(): string | null {
   return localStorage.getItem('hime_ai_token');
 }
 
+/** Error carrying the HTTP status so callers can branch on 404/403 etc. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
+
+  // FormData must set its own multipart boundary; forcing application/json
+  // here produces a body multer cannot parse.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const headers: Record<string, string> = isFormData
+    ? { ...(options.headers as Record<string, string>) }
+    : { 'Content-Type': 'application/json', ...(options.headers as Record<string, string>) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(`${baseUrl}/api${path}`, { ...options, headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Request failed: ${response.status}`);
+    throw new ApiError(error.error || `Request failed: ${response.status}`, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -51,7 +64,7 @@ export async function login(email: string, password: string) {
 }
 
 export async function register(name: string, email: string, password: string, role: 'seeker' | 'company') {
-  const data = await apiRequest<{ token: string; user: User }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, role }) });
+  const data = await apiRequest<{ token: string; user: User; onboarding?: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, role }) });
   localStorage.setItem('hime_ai_token', data.token);
   localStorage.setItem('hime_ai_user', JSON.stringify(data.user));
   return data;
@@ -110,11 +123,28 @@ export async function updateProfile(data: Partial<CandidateProfile>) {
   return demoProfile;
 }
 
-export async function uploadCv(file: { name: string; size: number }) {
-  if (hasApi()) return apiRequest<CandidateProfile>('/candidates/cv', { method: 'POST', body: JSON.stringify({ fileName: file.name, fileSize: file.size, fileUrl: 'https://example.com/cv.pdf' }) });
+/**
+ * Uploads the CV as multipart/form-data.
+ *
+ * The previous version posted a placeholder fileUrl, so the server never saw
+ * the document and the AI had nothing to parse.
+ */
+export async function uploadCv(input: File | { name: string; size: number }) {
+  if (hasApi()) {
+    if (input instanceof File) {
+      const form = new FormData();
+      form.append('file', input);
+      return apiRequest<CandidateProfile>('/candidates/cv', { method: 'POST', body: form });
+    }
+    // No File object (older callers) — fall back to the metadata-only shape.
+    return apiRequest<CandidateProfile>('/candidates/cv', {
+      method: 'POST',
+      body: JSON.stringify({ fileName: input.name, fileSize: input.size, fileUrl: 'https://example.com/cv.pdf' }),
+    });
+  }
   await wait(750);
   demoProfile.cvStatus = 'analyzed';
-  return { ...file, status: 'analyzed' as const, extractedAt: 'الآن' };
+  return { ...input, status: 'analyzed' as const, extractedAt: 'الآن' };
 }
 
 // ─── Recommendations & Applications ─────────────────────────────────────────
@@ -236,8 +266,47 @@ export async function candidates(jobId: string) {
 }
 
 export async function company() {
-  if (hasApi()) return apiRequest<Company>('/companies/me/profile');
+  if (hasApi()) {
+    try {
+      return await apiRequest<Company>('/companies/me/profile');
+    } catch (err) {
+      // A company that has not submitted its details yet has no row, so the
+      // endpoint 404s. Return an empty draft so onboarding can render
+      // instead of showing an error.
+      if (err instanceof ApiError && err.status === 404) {
+        return {
+          id: '', name: '', industry: '', location: '', website: '',
+          description: '', teamSize: '', verified: false, verificationStatus: 'draft',
+        } as Company;
+      }
+      throw err;
+    }
+  }
   await wait();
+  return demoCompany;
+}
+
+export interface CompanyProfileInput {
+  name: string;
+  industry: string;
+  location: string;
+  website?: string;
+  description?: string;
+  employeeCount?: number;
+  foundedYear?: number;
+}
+
+export async function saveCompanyProfile(input: CompanyProfileInput) {
+  if (hasApi()) return apiRequest<Company>('/companies/profile', { method: 'POST', body: JSON.stringify(input) });
+  await wait(300);
+  demoCompany = { ...demoCompany, ...input };
+  return demoCompany;
+}
+
+export async function requestVerification() {
+  if (hasApi()) return apiRequest<Company>('/companies/verification/request', { method: 'POST' });
+  await wait(300);
+  demoCompany = { ...demoCompany, verificationStatus: 'pending' as VerificationStatus };
   return demoCompany;
 }
 
@@ -253,4 +322,37 @@ export async function listCompanies() {
   if (hasApi()) return apiRequest<Company[]>('/companies');
   await wait();
   return demoCompanies;
+}
+
+// ─── Company verification review (admin) ────────────────────────────────────
+
+export type { VerificationStatus } from '@/types';
+
+export interface AdminCompany extends Company {
+  verificationStatus: VerificationStatus;
+  verificationNote?: string | null;
+  contact?: { name: string; email: string } | null;
+}
+
+export async function listCompaniesForReview(status?: VerificationStatus) {
+  if (hasApi()) {
+    const q = status ? `?status=${status}` : '';
+    return apiRequest<AdminCompany[]>(`/admin/companies${q}`);
+  }
+  await wait();
+  return demoCompanies as AdminCompany[];
+}
+
+export async function approveCompany(id: string) {
+  if (hasApi()) return apiRequest<Company>(`/admin/companies/${id}/verify`, { method: 'POST' });
+  await wait(250);
+  demoCompanies = demoCompanies.map((c) => c.id === id ? { ...c, verificationStatus: 'verified' as const, verified: true } : c);
+  return demoCompanies.find((c) => c.id === id)!;
+}
+
+export async function rejectCompany(id: string, reason: string) {
+  if (hasApi()) return apiRequest<Company>(`/admin/companies/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+  await wait(250);
+  demoCompanies = demoCompanies.map((c) => c.id === id ? { ...c, verificationStatus: 'rejected' as const, verificationNote: reason } : c);
+  return demoCompanies.find((c) => c.id === id)!;
 }

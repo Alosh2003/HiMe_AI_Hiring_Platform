@@ -1,14 +1,16 @@
 import { db } from "@workspace/db";
 import { candidatesTable, candidateSkillsTable, experiencesTable, educationTable, projectsTable, certificationsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 // ─── Provider config ───────────────────────────────────────────────────────
 
 const OPENAI_API_KEY = process.env["OPENAI_API_KEY"] || "";
 const OPENAI_MODEL = process.env["OPENAI_MODEL"] || "gpt-4o-mini";
 const GEMINI_API_KEY = process.env["GEMINI_API_KEY"] || "";
-// gemini-2.0-flash was retired; "flash-latest" tracks the current stable Flash.
-const GEMINI_MODEL = process.env["GEMINI_MODEL"] || "gemini-flash-latest";
+// gemini-2.0-flash was retired; gemini-flash-latest is only ~50% reliable on
+// the free tier (intermittent 503s). gemini-3.5-flash is stable and GA.
+const GEMINI_MODEL = process.env["GEMINI_MODEL"] || "gemini-3.5-flash";
 
 const LLM_PROVIDER = process.env["LLM_PROVIDER"] || (GEMINI_API_KEY ? "gemini" : OPENAI_API_KEY ? "openai" : "none");
 
@@ -48,31 +50,68 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<LLM
 
 // ─── Google Gemini ─────────────────────────────────────────────────────────
 
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 400;
+
+/**
+ * Gemini's free tier intermittently returns 503/429 under load. Retry with
+ * backoff so a transient blip does not silently degrade to rule-based output.
+ */
 async function callGemini(systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
   if (!GEMINI_API_KEY) return { content: "" };
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-        },
-      }),
-    },
-  );
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-  if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
+  let lastError: unknown;
 
-  const data = await response.json() as {
-    candidates: { content: { parts: { text: string }[] } }[];
-  };
-  return { content: data.candidates[0].content.parts[0].text };
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, RETRY_BASE_MS * attempt));
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ parts: [{ text: userPrompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1000,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as {
+          candidates: { content: { parts: { text: string }[] } }[];
+        };
+        return { content: data.candidates?.[0]?.content?.parts?.[0]?.text ?? "" };
+      }
+
+      lastError = new Error(`Gemini API error: ${response.status}`);
+
+      // Only capacity/rate errors are worth retrying.
+      if (response.status !== 429 && response.status !== 503) {
+        throw lastError;
+      }
+
+      logger.warn(
+        { status: response.status, attempt },
+        `Gemini ${response.status} — retrying`,
+      );
+    } catch (err) {
+      if (err instanceof Error && /API error: (4\d\d)/.test(err.message)) {
+        throw err; // client error, retrying will not help
+      }
+      lastError = err;
+      logger.warn({ attempt, err }, "Gemini request failed — retrying");
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Gemini request failed");
 }
 
 // ─── Unified LLM caller ───────────────────────────────────────────────────
@@ -146,14 +185,21 @@ Return ONLY the JSON object, no other text.`;
 
   try {
     const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`);
-    return extractJson(result.content) as {
+    const parsed = extractJson(result.content) as {
       headline: string;
       summary: string;
       skills: string[];
       experiences: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
     };
-  } catch {
-    return { headline: "", summary: "", skills: [], experiences: [] };
+    // An empty parse means the model replied but with nothing usable; make
+    // that visible rather than looking like a successful empty result.
+    if (!parsed?.headline && !parsed?.skills?.length) {
+      throw new Error("LLM returned no usable CV fields");
+    }
+    return parsed;
+  } catch (err) {
+    logger.error({ err }, "parseCvWithLLM failed");
+    throw err instanceof Error ? err : new Error("CV parsing failed");
   }
 }
 
@@ -276,13 +322,18 @@ Return ONLY the JSON object.`;
 
   try {
     const result = await callLLM(systemPrompt, `Job Description:\n${description}`);
-    return extractJson(result.content) as {
+    const parsed = extractJson(result.content) as {
       requiredSkills: string[];
       preferredSkills: string[];
       experienceLevel: string;
       industry: string;
     };
-  } catch {
+    if (!parsed || (!parsed.requiredSkills?.length && !parsed.industry)) {
+      throw new Error("LLM returned no usable job fields");
+    }
+    return parsed;
+  } catch (err) {
+    logger.error({ err }, "analyzeJobDescription failed");
     return { requiredSkills: [], preferredSkills: [], experienceLevel: "mid", industry: "" };
   }
 }

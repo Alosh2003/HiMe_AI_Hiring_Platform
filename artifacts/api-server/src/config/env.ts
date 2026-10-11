@@ -8,7 +8,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
+  GEMINI_MODEL: z.string().default("gemini-3.5-flash"),
   LLM_PROVIDER: z.enum(["gemini", "openai", "none"]).default("none"),
   UPLOAD_DIR: z.string().default("./uploads"),
   CORS_ORIGIN: z.string().default("*"),

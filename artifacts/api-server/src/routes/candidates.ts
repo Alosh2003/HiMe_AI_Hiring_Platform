@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
 import { calculateProfileCompletion } from "../ai/llm";
 import { saveFile } from "../services/file-storage";
@@ -263,6 +264,7 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
         skills?: string[];
         experiences?: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
       } | undefined;
+      let parseError: string | undefined;
 
       if (cvText) {
         try {
@@ -309,8 +311,11 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
               }
             }
           }
-        } catch {
-          // LLM parsing failed
+        } catch (err) {
+          // Surface the reason instead of returning an empty profile with no
+          // indication that parsing failed.
+          logger.error({ err }, "CV parsing by the LLM failed");
+          parseError = err instanceof Error ? err.message : "CV parsing failed";
         }
       }
 
@@ -329,6 +334,8 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
 
       res.json({
         ...updated[0],
+        parsed: Boolean(parsedData?.headline || parsedData?.skills?.length),
+        ...(parseError ? { parseError } : {}),
         file: {
           id: storedFile.id,
           name: storedFile.originalName,

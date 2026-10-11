@@ -17,7 +17,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, role: 'seeker' | 'company') => Promise<void>;
+  register: (name: string, email: string, password: string, role: 'seeker' | 'company') => Promise<{ onboarding: boolean }>;
   logout: () => void;
   hasRole: (roles: UserRole[]) => boolean;
 }
@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const data = await response.json();
     persist(data.token, data.user as AuthUser);
+    return { onboarding: data.onboarding !== false };
   }, [persist]);
 
   const logout = useCallback(() => {

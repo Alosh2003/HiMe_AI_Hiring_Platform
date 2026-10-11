@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
+import { usersTable, candidatesTable } from "@workspace/db/schema";
 import { signToken, authMiddleware, type AuthRequest } from "../middleware/auth";
 import { authRateLimiter } from "../middleware/rate-limiter";
 import { sanitizeEmail } from "../middleware/sanitizer";
@@ -96,6 +96,21 @@ router.post("/register", authRateLimiter, async (req, res) => {
     phone,
   }).returning();
 
+  // Seed a candidate row so a brand-new seeker can upload a CV straight away.
+  // Without it POST /api/candidates/cv and PATCH /profile both 404.
+  let onboarding = false;
+  if (role === "seeker") {
+    await db.insert(candidatesTable).values({
+      userId: newUser[0].id,
+      preferences: { industries: [], contractTypes: [], remote: false },
+      completion: 0,
+    });
+    onboarding = true;
+  } else if (role === "company") {
+    // No company row yet — it is created when they submit their details.
+    onboarding = true;
+  }
+
   const token = signToken({
     userId: newUser[0].id,
     email: newUser[0].email,
@@ -104,6 +119,7 @@ router.post("/register", authRateLimiter, async (req, res) => {
 
   res.status(201).json({
     token,
+    onboarding,
     user: {
       id: newUser[0].id,
       email: newUser[0].email,

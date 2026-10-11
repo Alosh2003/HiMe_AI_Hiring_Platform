@@ -11,6 +11,28 @@ export const ROLE_HOME: Record<UserRole, string> = {
   admin: '/admin/dashboard',
 };
 
+/** Where a brand-new account lands, before it has any data. */
+export const ONBOARDING_START: Record<UserRole, string> = {
+  seeker: '/seeker/cv',
+  company: '/company/profile',
+  admin: '/admin/dashboard',
+};
+
+/**
+ * Post-registration destination.
+ *
+ * A first-time account goes straight into onboarding; a returning one goes to
+ * its dashboard. Seeker onboarding starts at the CV upload because that is
+ * what fills the profile, while a company must fill in its details before it
+ * can request verification.
+ */
+export function resolveRegistrationRedirect(
+  role: UserRole,
+  onboarding: boolean,
+): string {
+  return onboarding ? ONBOARDING_START[role] : roleHome(role);
+}
+
 export function roleHome(role: UserRole | undefined | null): string {
   return role ? ROLE_HOME[role] : '/login';
 }
