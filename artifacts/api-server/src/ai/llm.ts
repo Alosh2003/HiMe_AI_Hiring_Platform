@@ -11,11 +11,23 @@ const GEMINI_API_KEY = process.env["GEMINI_API_KEY"] || "";
 // gemini-2.0-flash was retired; gemini-flash-latest is only ~50% reliable on
 // the free tier (intermittent 503s). gemini-3.5-flash is stable and GA.
 const GEMINI_MODEL = process.env["GEMINI_MODEL"] || "gemini-3.5-flash";
+const OLLAMA_BASE_URL = (process.env["OLLAMA_BASE_URL"] || "http://localhost:11434").replace(/\/+$/, "");
+const OLLAMA_MODEL = process.env["OLLAMA_MODEL"] || "qwen2.5:7b";
 
-const LLM_PROVIDER = process.env["LLM_PROVIDER"] || (GEMINI_API_KEY ? "gemini" : OPENAI_API_KEY ? "openai" : "none");
+type ProviderName = "ollama" | "gemini" | "openai" | "none";
+
+const LLM_PROVIDER = (process.env["LLM_PROVIDER"] || (GEMINI_API_KEY ? "gemini" : OPENAI_API_KEY ? "openai" : "none")) as ProviderName;
+// Optional second chance: when the primary fails, try this one before giving
+// up. Defaults to gemini whenever ollama is primary and a key exists.
+const LLM_FALLBACK = (process.env["LLM_FALLBACK"] || (LLM_PROVIDER === "ollama" && GEMINI_API_KEY ? "gemini" : "none")) as ProviderName;
 
 interface LLMResponse {
   content: string;
+}
+
+interface CallOptions {
+  /** Ask the model for strict JSON output (both Ollama and Gemini honor it). */
+  json?: boolean;
 }
 
 // ─── OpenAI ────────────────────────────────────────────────────────────────
@@ -48,6 +60,51 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<LLM
   return { content: data.choices[0].message.content };
 }
 
+// ─── Ollama (local models) ─────────────────────────────────────────────────
+
+/**
+ * Talks to a locally running Ollama (or any OpenAI-compatible endpoint) via
+ * its /v1/chat/completions API. No key, no quota, no data leaving the box.
+ */
+async function callOllama(
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens = 1000,
+  options: CallOptions = {},
+): Promise<LLMResponse> {
+  const body: Record<string, unknown> = {
+    model: OLLAMA_MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.7,
+    max_tokens: maxOutputTokens,
+    stream: false,
+  };
+  if (options.json) {
+    body["response_format"] = { type: "json_object" };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${OLLAMA_BASE_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new Error(`Ollama unreachable at ${OLLAMA_BASE_URL} (${err instanceof Error ? err.message : err})`);
+  }
+
+  if (!response.ok) throw new Error(`Ollama API error: ${response.status}`);
+
+  const data = await response.json() as {
+    choices: { message: { content: string } }[];
+  };
+  return { content: data.choices?.[0]?.message?.content ?? "" };
+}
+
 // ─── Google Gemini ─────────────────────────────────────────────────────────
 
 const MAX_RETRIES = 3;
@@ -61,6 +118,7 @@ async function callGemini(
   systemPrompt: string,
   userPrompt: string,
   maxOutputTokens = 1000,
+  options: CallOptions = {},
 ): Promise<LLMResponse> {
   if (!GEMINI_API_KEY) return { content: "" };
 
@@ -75,16 +133,20 @@ async function callGemini(
     }
 
     try {
+      const generationConfig: Record<string, unknown> = {
+        temperature: 0.7,
+        maxOutputTokens,
+      };
+      if (options.json) {
+        generationConfig["responseMimeType"] = "application/json";
+      }
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens,
-          },
+          generationConfig,
         }),
       });
 
@@ -120,18 +182,41 @@ async function callGemini(
 
 // ─── Unified LLM caller ───────────────────────────────────────────────────
 
+async function callProvider(
+  provider: ProviderName,
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens: number,
+  options: CallOptions,
+): Promise<LLMResponse> {
+  switch (provider) {
+    case "ollama":
+      return callOllama(systemPrompt, userPrompt, maxOutputTokens, options);
+    case "gemini":
+      return callGemini(systemPrompt, userPrompt, maxOutputTokens, options);
+    case "openai":
+      return callOpenAI(systemPrompt, userPrompt);
+    case "none":
+      return { content: "" };
+  }
+}
+
 async function callLLM(
   systemPrompt: string,
   userPrompt: string,
   maxOutputTokens = 1000,
+  options: CallOptions = {},
 ): Promise<LLMResponse> {
-  if (LLM_PROVIDER === "gemini") {
-    return callGemini(systemPrompt, userPrompt, maxOutputTokens);
+  try {
+    return await callProvider(LLM_PROVIDER, systemPrompt, userPrompt, maxOutputTokens, options);
+  } catch (err) {
+    // Second chance on the fallback provider before surfacing the failure.
+    if (LLM_FALLBACK !== "none" && LLM_FALLBACK !== LLM_PROVIDER) {
+      logger.warn({ err, from: LLM_PROVIDER, to: LLM_FALLBACK }, "Primary LLM failed — trying fallback");
+      return callProvider(LLM_FALLBACK, systemPrompt, userPrompt, maxOutputTokens, options);
+    }
+    throw err;
   }
-  if (LLM_PROVIDER === "openai") {
-    return callOpenAI(systemPrompt, userPrompt);
-  }
-  return { content: "" };
 }
 
 export function isLLMAvailable(): boolean {
@@ -139,7 +224,9 @@ export function isLLMAvailable(): boolean {
 }
 
 export function getLLMProvider(): string {
-  return LLM_PROVIDER;
+  return LLM_FALLBACK !== "none" && LLM_FALLBACK !== LLM_PROVIDER
+    ? `${LLM_PROVIDER}+${LLM_FALLBACK}`
+    : LLM_PROVIDER;
 }
 
 /**
@@ -192,7 +279,7 @@ Extract the following as JSON:
 Return ONLY the JSON object, no other text.`;
 
   try {
-    const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`);
+    const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`, 1000, { json: true });
     const parsed = extractJson(result.content) as {
       headline: string;
       summary: string;
@@ -257,7 +344,13 @@ recommendation must be something the candidate can actually change.`;
   try {
     // The assessment JSON is much larger than a CV parse; 1000 tokens cut it
     // off mid-object (finishReason: MAX_TOKENS) and produced invalid JSON.
-    const result = await callLLM(systemPrompt, `Job role: ${role}\n\nCV:\n${cvText.slice(0, 40_000)}`, 4000);
+    // JSON mode removes the fence/prose problem at the source.
+    const result = await callLLM(
+      systemPrompt,
+      `Job role: ${role}\n\nCV:\n${cvText.slice(0, 40_000)}`,
+      4000,
+      { json: true },
+    );
     const parsed = extractJson(result.content) as CvAssessment;
 
     if (
@@ -394,7 +487,7 @@ Extract the following as JSON:
 Return ONLY the JSON object.`;
 
   try {
-    const result = await callLLM(systemPrompt, `Job Description:\n${description}`);
+    const result = await callLLM(systemPrompt, `Job Description:\n${description}`, 1000, { json: true });
     const parsed = extractJson(result.content) as {
       requiredSkills: string[];
       preferredSkills: string[];
