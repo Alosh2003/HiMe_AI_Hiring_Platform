@@ -37,6 +37,17 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     return;
   }
 
+  // Unverified postings are not publicly listed, so they cannot receive
+  // applications either — a UUID guessed from elsewhere is not an invitation.
+  const hiringCompany = await db.query.companiesTable.findFirst({
+    where: eq(companiesTable.id, job.companyId),
+    columns: { verificationStatus: true },
+  });
+  if (!hiringCompany || hiringCompany.verificationStatus !== "verified") {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
   const existing = await db.query.applicationsTable.findFirst({
     where: and(
       eq(applicationsTable.jobId, parsed.data.jobId),

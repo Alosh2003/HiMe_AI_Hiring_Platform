@@ -5,6 +5,7 @@ import { db } from "@workspace/db";
 import { companiesTable, jobsTable, jobSkillsTable, skillsTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
+import { writeAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -148,6 +149,14 @@ router.post("/verification/request", authMiddleware, requireRole("company"), asy
     })
     .where(eq(companiesTable.id, company.id))
     .returning();
+
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "company.verification.request",
+    targetType: "company",
+    targetId: company.id,
+    meta: { name: company.name },
+  });
 
   res.json(updated[0]);
 });

@@ -35,6 +35,9 @@ These were real bugs, found and closed. Listed so they are not re-reported.
 | 17 | LLM failures swallowed in two places | Dead AI looked like a clean empty result | Log + surface `parsed` / `parseError` |
 | 18 | Stale closure in auth forms | Two batched updates dropped a sibling field | Functional `setState` updaters |
 | 19 | Uploaded CVs committed to git | Personal data in the repo | Removed + gitignored |
+| 20 | Company verification not enforced (O1) | Unverified companies posted to the public board | `verificationStatus` guard on `POST /api/jobs`, public listing/detail gated, applications to hidden jobs refused, `NewJobPage` gate |
+| 21 | Uploads served publicly (O3) | Any CV readable with a URL | Authenticated `/files` route with seeker-ownership check (admin bypass), traversal-safe |
+| 22 | No audit trail (O4) | Admin actions left no record | `audit_logs` table + `writeAudit()` on verify/reject/suspend/delete/verification-request/job-create |
 
 ---
 
@@ -42,26 +45,27 @@ These were real bugs, found and closed. Listed so they are not re-reported.
 
 ### P0 — Security / data integrity
 
-**O1 · Company verification is not enforced**
-`POST /api/jobs` checks that a company profile exists but never checks
-`verificationStatus === 'verified'`. A brand-new company in `draft` state can post
-jobs that appear on the public board. The entire admin-review workflow is
-currently decorative.
-*Verified — route read directly.*
+**O1 · Company verification is not enforced — FIXED (Phase 1)**
+`POST /api/jobs` now requires `verificationStatus === 'verified'` (403
+otherwise); `GET /api/jobs` lists only verified companies' jobs; job detail
+404s for unverified postings except owner/admin preview; applications to hidden
+jobs are refused; `NewJobPage` shows an explanatory gate. Verified live.
 
 **O2 · No email / phone verification**
 Accounts are active the moment they are created. Combined with O1, anyone can
 register a company, claim to be any employer, and post jobs. There is no proof
 the account owner controls the contact details.
 
-**O3 · File uploads stored with predictable paths and no ownership checks**
-Uploads land in `./uploads/<uuid>` and are served from `/files` with no
-authentication. Anyone who guesses or obtains a URL can read someone else's CV.
-There is also no check that the uploaded file belongs to the requester.
+**O3 · File uploads stored with predictable paths and no ownership checks — FIXED (Phase 1)**
+`/files` is now an authenticated route: the owning seeker or an admin can
+download; everyone else (including other signed-in users) gets the same 404 as
+a missing file, and traversal/extension tricks are rejected. Verified live.
 
-**O4 · No audit trail for admin actions**
-Approve / reject / suspend / delete happen with no record of which admin did it,
-when, or why (beyond a free-text reason). Not actionable after the fact.
+**O4 · No audit trail for admin actions — FIXED (Phase 1)**
+`audit_logs(actorId, action, targetType, targetId, meta)` with `writeAudit()`
+called from company verify/reject/suspend, job delete, verification requests
+and job creation. The trail survives actor deletion (`ON DELETE SET NULL`).
+Verified live.
 
 **O5 · Rate-limit counters are in-memory and per-process**
 Restarting the API resets every counter, and multiple processes do not share
@@ -199,8 +203,15 @@ shippable.
 
 ```
 Phase 1 (security)  ──►  Phase 2 (honest UI)  ──►  Phase 3 (hardening)
-     ~2 days                   ~3 days                   ~4 days
+     DONE ✅                  ~3 days                   ~4 days
 ```
+
+Phase 1 completed: O1 (verification enforced on posting, listing, detail and
+applications, plus a `NewJobPage` gate), O3 (authenticated `/files` with
+ownership checks), O4 (`audit_logs` on every admin mutation), and 1.5 (seed
+updated, production rows backfilled — no inconsistencies found). O2 (email
+verification) and O5 (persistent rate limits) remain open by design: they need
+an email provider and shared state respectively.
 
 Phase 1 first because O1 means the verification work already shipped provides
 **no actual protection** — that is the one place where the current code is

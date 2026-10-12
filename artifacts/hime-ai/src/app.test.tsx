@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, delay } from 'msw';
 import App from './App';
 import { server, TEST_IDS } from '@/test/msw';
 import { assessRedirectTarget } from '@/lib/routes';
@@ -735,5 +735,61 @@ describe('applications', () => {
     fireEvent.click(applyButton);
 
     expect(await screen.findByTestId('error-application', {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+});
+
+// ─── Job posting gate (verification required) ───────────────────────────────
+
+describe('job posting gate', () => {
+  it('shows the form to a verified company', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/company/jobs/new');
+
+    // Step 1 of the form renders (publish lives on step 3).
+    expect(await screen.findByTestId('button-next-step', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByTestId('card-job-post-blocked')).not.toBeInTheDocument();
+  });
+
+  it('blocks an unverified company with an explanation', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.get('*/api/companies/me/profile', async () => {
+        await delay(10);
+        return HttpResponse.json({
+          id: TEST_IDS.company1,
+          name: 'شركة جديدة',
+          industry: 'تقنية المعلومات',
+          location: 'الرياض',
+          website: '',
+          description: 'وصف تجريبي للشركة الجديدة.',
+          verified: false,
+          verificationStatus: 'pending',
+        });
+      }),
+    );
+    renderAt('/company/jobs/new');
+
+    expect(await screen.findByTestId('card-job-post-blocked', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByTestId('link-job-blocked-to-profile')).toHaveAttribute('href', '/company/profile');
+    expect(screen.queryByTestId('button-publish-job')).not.toBeInTheDocument();
+  });
+
+  it('blocks a company without any profile from posting', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.get('*/api/companies/me/profile', async () => {
+        await delay(10);
+        return HttpResponse.json({
+          id: '', name: '', industry: '', location: '', website: '',
+          description: '', verified: false, verificationStatus: 'draft',
+        });
+      }),
+    );
+    renderAt('/company/jobs/new');
+
+    expect(await screen.findByTestId('card-job-post-blocked', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });

@@ -3,8 +3,9 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { companiesTable, jobsTable, usersTable, applicationsTable, candidatesTable } from "@workspace/db/schema";
-import { authMiddleware, requireRole } from "../middleware/auth";
+import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
+import { writeAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -49,7 +50,7 @@ router.get("/companies", authMiddleware, requireRole("admin"), async (req, res) 
   })));
 });
 
-router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
+router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const companyId = req.params.id as string;
 
   const company = await db.query.companiesTable.findFirst({
@@ -77,10 +78,18 @@ router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), valid
     .where(eq(companiesTable.id, company.id))
     .returning();
 
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "company.verify",
+    targetType: "company",
+    targetId: company.id,
+    meta: { name: company.name },
+  });
+
   res.json(updated[0]);
 });
 
-router.post("/companies/:id/reject", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
+router.post("/companies/:id/reject", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const companyId = req.params.id as string;
 
   const parsed = z.object({ reason: z.string().min(5).max(1000) }).safeParse(req.body);
@@ -113,10 +122,18 @@ router.post("/companies/:id/reject", authMiddleware, requireRole("admin"), valid
     .where(eq(companiesTable.id, company.id))
     .returning();
 
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "company.reject",
+    targetType: "company",
+    targetId: company.id,
+    meta: { name: company.name, reason: parsed.data.reason },
+  });
+
   res.json(updated[0]);
 });
 
-router.post("/companies/:id/suspend", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
+router.post("/companies/:id/suspend", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const companyId = req.params.id as string;
 
   const company = await db.query.companiesTable.findFirst({
@@ -138,10 +155,18 @@ router.post("/companies/:id/suspend", authMiddleware, requireRole("admin"), vali
     .where(eq(companiesTable.id, company.id))
     .returning();
 
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "company.suspend",
+    targetType: "company",
+    targetId: company.id,
+    meta: { name: company.name },
+  });
+
   res.json(updated[0]);
 });
 
-router.delete("/jobs/:id", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req, res) => {
+router.delete("/jobs/:id", authMiddleware, requireRole("admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const jobId = req.params.id as string;
 
   const job = await db.query.jobsTable.findFirst({
@@ -154,6 +179,15 @@ router.delete("/jobs/:id", authMiddleware, requireRole("admin"), validateUuidPar
   }
 
   await db.delete(jobsTable).where(eq(jobsTable.id, job.id));
+
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "job.delete",
+    targetType: "job",
+    targetId: job.id,
+    meta: { title: job.title, companyId: job.companyId },
+  });
+
   res.status(204).send();
 });
 

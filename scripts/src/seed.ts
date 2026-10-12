@@ -87,6 +87,8 @@ async function seed() {
     employeeCount: 150,
     foundedYear: 2022,
     verified: true,
+    verificationStatus: "verified",
+    verifiedAt: new Date(),
   }).returning();
 
   const companyId = company[0].id;

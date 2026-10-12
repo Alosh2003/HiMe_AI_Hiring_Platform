@@ -523,6 +523,10 @@ export function CompanyJobsPage() {
 // ─── New Job Page (Multi-Step Form) ───────────────────────────────────────────
 export function NewJobPage() {
   const [, setLocation] = useLocation();
+  // Posting requires a verified company. The gate below explains that before
+  // the form is ever shown; the API enforces the same rule server-side.
+  const { data: company, loading: companyLoading } = useDemo(demoApi.company, []);
+  const companyBlocked = !companyLoading && (!company || company.verificationStatus !== 'verified');
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     title: '',
@@ -537,6 +541,7 @@ export function NewJobPage() {
     newSkill: '',
   });
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const update = <K extends keyof typeof form>(key: K, value: typeof form[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -550,23 +555,72 @@ export function NewJobPage() {
   const removeSkill = (skill: string) => update('skills', form.skills.filter((s) => s !== skill));
 
   const handleSubmit = async () => {
-    await demoApi.createJob({
-      title: form.title,
-      description: form.description,
-      industry: form.industry,
-      location: form.location,
-      contract: form.contract,
-      experience: form.experience,
-      deadline: form.deadline,
-      salary: form.salary,
-      requiredSkills: form.skills.map((name, i) => ({ id: `s-${i}`, name, category: 'professional' })),
-      preferredSkills: [],
-    });
-    setSubmitted(true);
-    setTimeout(() => setLocation('/company/jobs'), 1500);
+    setSubmitError('');
+    try {
+      await demoApi.createJob({
+        title: form.title,
+        description: form.description,
+        industry: form.industry,
+        location: form.location,
+        contract: form.contract,
+        experience: form.experience,
+        deadline: form.deadline,
+        salary: form.salary,
+        requiredSkills: form.skills.map((name, i) => ({ id: `s-${i}`, name, category: 'professional' })),
+        preferredSkills: [],
+      });
+      setSubmitted(true);
+      setTimeout(() => setLocation('/company/jobs'), 1500);
+    } catch (err) {
+      // The API refuses unverified companies with 403; surface that instead
+      // of hanging on the submitting state.
+      if (err instanceof demoApi.ApiError && err.status === 403) {
+        setSubmitError('نشر الوظائف يتطلب توثيق الشركة أولاً. أكمل ملف الشركة واطلب التحقق.');
+      } else {
+        setSubmitError(err instanceof Error ? err.message : 'تعذر نشر الوظيفة. حاول مرة أخرى.');
+      }
+    }
   };
 
   const steps = ['المعلومات الأساسية', 'التفاصيل والمهارات', 'الراتب والنشر'];
+
+  if (companyLoading) {
+    return <RoleShell role="company"><LoadingState /></RoleShell>;
+  }
+
+  if (companyBlocked) {
+    return (
+      <RoleShell role="company">
+        <PageHeader
+          eyebrow="فرصة جديدة"
+          title="اكتب الدور الذي تريد أن ينضم إليه."
+          description="الوصف الواضح يجذب الأشخاص المناسبين ويجعل المطابقة أدق."
+        />
+        <div className="mx-auto max-w-xl" data-testid="card-job-post-blocked">
+          <Card>
+            <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent/15 text-accent-foreground">
+                <ShieldCheck className="h-7 w-7" />
+              </div>
+              <p className="text-lg font-bold">نشر الوظائف يتطلب توثيق الشركة</p>
+              <p className="text-sm leading-7 text-muted-foreground">
+                {company?.verificationStatus === 'pending'
+                  ? 'طلب التحقق الخاص بك قيد المراجعة لدى إدارة المنصة. ستتمكن من نشر الوظائف فور اعتمادك.'
+                  : 'أكمل بيانات الشركة ثم أرسل طلب التحقق. ستتمكن من نشر الوظائف فور اعتمادك من إدارة المنصة.'}
+              </p>
+              <Link
+                href="/company/profile"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-bold text-primary-foreground"
+                data-testid="link-job-blocked-to-profile"
+              >
+                إكمال ملف الشركة <ArrowUpLeft className="h-4 w-4" />
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </RoleShell>
+    );
+  }
 
   return (
     <RoleShell role="company">
@@ -731,6 +785,11 @@ export function NewJobPage() {
                 <Button onClick={handleSubmit} disabled={!form.title || !form.description} data-testid="button-publish-job">
                   <CheckCircle2 className="h-4 w-4" />نشر الوظيفة
                 </Button>
+              )}
+              {submitError && (
+                <p className="mt-3 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-publish-job">
+                  {submitError}
+                </p>
               )}
             </div>
           </div>

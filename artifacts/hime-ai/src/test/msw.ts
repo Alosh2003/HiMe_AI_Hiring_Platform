@@ -21,6 +21,7 @@ const company = {
   website: 'medad.example',
   description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً.',
   verified: true,
+  verificationStatus: 'verified',
 };
 
 const job = {

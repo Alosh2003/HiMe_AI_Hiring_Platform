@@ -1,12 +1,12 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import path from "path";
 import { getConfig, isProduction } from "./config/env";
 import { globalRateLimiter } from "./middleware/rate-limiter";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { sanitizeBody, sanitizeQuery } from "./middleware/sanitizer";
 import router from "./routes";
+import filesRouter from "./routes/files";
 import { logger } from "./lib/logger";
 
 const config = getConfig();
@@ -89,8 +89,9 @@ app.get("/", (_req, res) => {
 // API routes
 app.use("/api", router);
 
-// Serve uploaded files
-app.use("/files", express.static(path.join(process.cwd(), config.UPLOAD_DIR)));
+// Serve uploaded files only through the ownership-checked route.
+// A bare express.static here would expose every CV to anyone with a URL.
+app.use("/files", filesRouter);
 
 // 404 handler
 app.use(notFoundHandler);

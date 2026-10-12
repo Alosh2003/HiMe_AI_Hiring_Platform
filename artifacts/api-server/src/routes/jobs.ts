@@ -3,8 +3,9 @@ import { and, desc, eq, ilike, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { jobsTable, companiesTable, jobSkillsTable, skillsTable } from "@workspace/db/schema";
-import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { authMiddleware, requireRole, verifyToken, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
+import { writeAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -56,12 +57,30 @@ router.get("/", async (req, res) => {
     conditions.push(eq(jobsTable.contractType, parsedContract));
   }
 
-  // Pagination
+  // Pagination (parsed before use so the empty-board shortcut below can
+  // echo the requested page back).
   const pageResult = pageSchema.safeParse(page);
   const limitResult = limitSchema.safeParse(limit);
   const parsedPage = pageResult.success ? pageResult.data : 1;
   const parsedLimit = limitResult.success ? limitResult.data : DEFAULT_LIMIT;
   const offset = (parsedPage - 1) * parsedLimit;
+
+  // The public board only shows jobs from verified companies. An unverified
+  // posting is invisible here no matter its status — otherwise verification
+  // would be a badge without a meaning.
+  const verifiedCompanies = await db.query.companiesTable.findMany({
+    where: eq(companiesTable.verificationStatus, "verified"),
+    columns: { id: true },
+  });
+  const verifiedIds = verifiedCompanies.map((c) => c.id);
+  if (verifiedIds.length === 0) {
+    res.json({
+      jobs: [],
+      pagination: { page: parsedPage, limit: parsedLimit, total: 0, totalPages: 0, hasNext: false },
+    });
+    return;
+  }
+  conditions.push(inArray(jobsTable.companyId, verifiedIds));
 
   const jobs = await db.query.jobsTable.findMany({
     where: and(...conditions),
@@ -142,6 +161,22 @@ router.get("/:id", validateUuidParam("id"), async (req, res) => {
     where: eq(companiesTable.id, job.companyId),
   });
 
+  // Unverified postings are invisible on the public board, and that includes
+  // direct links — except for the owning company and admins, who need to
+  // preview what they wrote. Optional auth: no header means public visitor.
+  if (company && company.verificationStatus !== "verified") {
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    const payload = token ? verifyToken(token) : null;
+
+    const isOwner = payload?.role === "company" && company.userId === payload.userId;
+    const isAdmin = payload?.role === "admin";
+    if (!isOwner && !isAdmin) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+  }
+
   const skills = await db.query.jobSkillsTable.findMany({
     where: eq(jobSkillsTable.jobId, job.id),
   });
@@ -182,6 +217,17 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
 
   if (!company) {
     res.status(400).json({ error: "Company profile not found" });
+    return;
+  }
+
+  // Only verified companies may publish. This is what gives the admin review
+  // queue its meaning — without it, verification would be decorative.
+  if (company.verificationStatus !== "verified") {
+    res.status(403).json({
+      error: "Company verification required",
+      message: "Complete your company profile and get verified before posting jobs.",
+      verificationStatus: company.verificationStatus,
+    });
     return;
   }
 
@@ -227,6 +273,14 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
   }
 
   res.status(201).json(newJob[0]);
+
+  await writeAudit({
+    actorId: req.user!.userId,
+    action: "job.create",
+    targetType: "job",
+    targetId: newJob[0].id,
+    meta: { companyId: company.id, title: data.title },
+  });
 });
 
 router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("id"), async (req: AuthRequest, res) => {
