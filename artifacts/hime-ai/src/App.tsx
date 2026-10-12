@@ -8,10 +8,10 @@ import { LanguageProvider } from '@/i18n';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/contexts/auth-context';
 import { ProtectedRoute, GuestRoute } from '@/components/protected-route';
-import {
-  AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
+import { AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
   CompanyJobsPage, HomePage, JobsPage, NewJobPage, RecommendationsPage
 } from '@/pages/Pages';
+import { AssessPage } from '@/pages/AssessPage';
 import { JobDetailsPage, LoginPage, RegisterPage, SeekerCvPage } from '@/pages/TrustFlows';
 import {
   AdminDashboardPage, AdminProfilePage, CandidateDashboardPage,
@@ -37,6 +37,7 @@ function Router() {
         <Route path="/login"><GuestRoute><LoginPage /></GuestRoute></Route>
         <Route path="/register"><GuestRoute><RegisterPage /></GuestRoute></Route>
         <Route path="/about" component={AboutPage} />
+        <Route path="/assess" component={AssessPage} />
 
         {/* Seeker routes */}
         <Route path="/seeker/dashboard">

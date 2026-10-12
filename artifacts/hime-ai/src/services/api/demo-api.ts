@@ -147,6 +147,33 @@ export async function uploadCv(input: File | { name: string; size: number }) {
   return { ...input, status: 'analyzed' as const, extractedAt: 'الآن' };
 }
 
+// ─── Public CV assessment ───────────────────────────────────────────────────
+
+export interface CvAssessment {
+  overallScore: number;
+  role: string;
+  breakdown: {
+    skills: { score: number; matched: string[]; missing: string[] };
+    experience: { score: number; years: number; relevant: string[] };
+    education: { score: number; notes: string };
+    presentation: { score: number; notes: string };
+  };
+  strengths: string[];
+  gaps: string[];
+  recommendations: string[];
+}
+
+/**
+ * Rates a CV against a job role. Public — no auth header is sent.
+ * The result is stored in localStorage by the page so it survives sign-in.
+ */
+export async function assessCv(file: File, role: string): Promise<CvAssessment> {
+  const form = new FormData();
+  form.append('role', role);
+  form.append('file', file);
+  return apiRequest<CvAssessment>('/assess', { method: 'POST', body: form });
+}
+
 // ─── Recommendations & Applications ─────────────────────────────────────────
 
 export async function recommendations() {

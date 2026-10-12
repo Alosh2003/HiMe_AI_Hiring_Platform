@@ -124,6 +124,28 @@ export const handlers = [
     return HttpResponse.json(authUser);
   }),
 
+  // Public CV assessment (no auth)
+  http.post('*/api/assess', async () => {
+    await delay(50);
+    return HttpResponse.json({
+      overallScore: 85,
+      role: 'Senior Backend Engineer',
+      breakdown: {
+        skills: { score: 85, matched: ['Node.js', 'PostgreSQL'], missing: ['CI/CD'] },
+        experience: { score: 82, years: 5, relevant: ['Senior Backend Engineer'] },
+        education: { score: 95, notes: 'Relevant degree with active certification.' },
+        presentation: { score: 80, notes: 'Concise with quantified achievements.' },
+      },
+      strengths: ['Strong backend fundamentals', 'Quantified impact'],
+      gaps: ['No testing frameworks', 'No CI/CD experience'],
+      recommendations: [
+        'Add testing frameworks (Jest/Vitest) to your skills',
+        'Detail a CI/CD pipeline you built or improved',
+        'Expand bullet points for roles with 5+ years of experience',
+      ],
+    });
+  }),
+
   // Jobs — the live API wraps the list in { jobs, pagination } after the
   // pagination change. Mirroring that here is what lets the route matrix
   // catch response-shape bugs like the admin/jobs crash.

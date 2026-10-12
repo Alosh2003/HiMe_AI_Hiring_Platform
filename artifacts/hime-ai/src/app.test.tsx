@@ -400,6 +400,77 @@ describe('auth page navigation', () => {
   });
 });
 
+// ─── Public CV assessment ──────────────────────────────────────────────────
+
+describe('public CV assessment', () => {
+  it('is reachable without signing in', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    expect(await screen.findByTestId('input-assess-role')).toBeInTheDocument();
+    expect(screen.getByTestId('input-assess-file')).toBeInTheDocument();
+    expect(screen.getByTestId('button-submit-assess')).toBeDisabled();
+  });
+
+  it('returns an AI assessment and offers a sign-in CTA', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Senior Backend Engineer' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+
+    expect(await screen.findByTestId('status-assess-result', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText('Senior Backend Engineer')).toBeInTheDocument();
+    // The score appears in both the ring and the summary line.
+    expect(screen.getAllByText(/85%/).length).toBeGreaterThan(0);
+    expect(screen.getByText('نقاط القوة')).toBeInTheDocument();
+    expect(screen.getByText('الفجوات')).toBeInTheDocument();
+    expect(screen.getByText('تحسينات مقترحة')).toBeInTheDocument();
+  });
+
+  it('sends the visitor to register from the results CTA', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Product Designer' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+
+    const cta = await screen.findByTestId('link-assess-to-register', {}, { timeout: 5000 });
+    fireEvent.click(cta);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/register');
+    }, { timeout: 3000 });
+  });
+
+  it('keeps the assessment so the dashboard can show it after sign-in', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Data Analyst' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+
+    // The result is persisted for the signed-in dashboard to pick up.
+    const saved = JSON.parse(localStorage.getItem('hime_cv_assessment') || '{}');
+    expect(saved.overallScore).toBe(85);
+    expect(saved.recommendations.length).toBeGreaterThan(0);
+  });
+});
+
 // ─── CV upload ──────────────────────────────────────────────────────────────
 
 describe('CV upload', () => {

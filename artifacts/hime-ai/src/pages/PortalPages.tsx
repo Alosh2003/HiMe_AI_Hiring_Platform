@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,10 +8,11 @@ import { useDemo } from '@/hooks/use-demo';
 import { useLanguage } from '@/i18n';
 import * as demoApi from '@/services/api/demo-api';
 import { adminActivity, adminPermissions, candidateActivity, companyActivity, companyBenefits } from '@/services/portal-data';
-import type { CandidateProfile, Company, VerificationStatus } from '@/types';
+import type { CandidateProfile, Company, CvAssessment, VerificationStatus } from '@/types';
 import { Field, FeedbackState, JobCard, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
 import { RoleShell } from '@/components/role-shell';
 import { WorkflowGuide } from '@/components/workflow-guide';
+import { readSavedAssessment } from '@/pages/AssessPage';
 
 function MetricCard({ label, value, detail, icon: Icon, tone = 'primary' }: { label: string; value: string | number; detail: string; icon: typeof TrendingUp; tone?: 'primary' | 'accent' }) {
   return <Card><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-4 text-3xl font-bold">{value}</p><p className={`mt-2 text-[11px] ${tone === 'accent' ? 'text-accent-foreground' : 'text-primary'}`}>{detail}</p></div><div className={`grid h-10 w-10 place-items-center rounded-xl ${tone === 'accent' ? 'bg-accent/15 text-accent-foreground' : 'bg-primary/10 text-primary'}`}><Icon className="h-5 w-5" /></div></div></CardContent></Card>;
@@ -23,6 +24,80 @@ function ActivityList({ items }: { items: typeof candidateActivity }) {
 
 function SectionTitle({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return <div className="mb-4 flex items-end justify-between gap-4"><div><h2 className="text-lg font-bold">{title}</h2>{description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}</div>{action}</div>;
+}
+
+/**
+ * Picks up an assessment produced on the public /assess page before sign-in,
+ * so the recommendations the visitor already earned are waiting for them.
+ */
+function useSavedAssessment() {
+  const [assessment, setAssessment] = useState<CvAssessment | null>(() => readSavedAssessment());
+  useEffect(() => {
+    const sync = () => setAssessment(readSavedAssessment());
+    window.addEventListener('focus', sync);
+    return () => window.removeEventListener('focus', sync);
+  }, []);
+  return assessment;
+}
+
+function CvInsightsCard({ completion }: { completion: number }) {
+  const assessment = useSavedAssessment();
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent" data-testid="card-cv-insights">
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-primary" />
+          توصيات الذكاء الاصطناعي لسيرتك
+        </CardTitle>
+        {assessment && (
+          <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+            {assessment.overallScore}% آخر تقييم
+          </span>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {assessment ? (
+          <>
+            <p className="text-sm leading-6 text-muted-foreground">
+              آخر تقييم لسيرتك كان مقابل دور <span className="font-bold text-foreground">{assessment.role}</span>.
+              هذه أهم التحسينات:
+            </p>
+            <ol className="space-y-2">
+              {assessment.recommendations.slice(0, 3).map((rec, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-sm leading-6">
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{i + 1}</span>
+                  <span>{rec}</span>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          <p className="text-sm leading-6 text-muted-foreground">
+            {completion >= 60
+              ? 'ملفك في حالة جيدة. ارفع سيرتك للحصول على تقييم مفصل وتوصيات تحسين مخصصة.'
+              : 'أكمل ملفك لتحصل على تقييم مفصل وتوصيات تحسين مخصصة من الذكاء الاصطناعي.'}
+          </p>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            href="/seeker/recommendations"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
+            data-testid="link-insights-recommendations"
+          >
+            استكشف الوظائف المطابقة <ArrowUpLeft className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/seeker/cv"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"
+            data-testid="link-insights-upload"
+          >
+            {assessment ? 'أعد التقييم' : 'ارفع سيرتك'}
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function CandidateDashboardPage() {
@@ -39,6 +114,10 @@ export function CandidateDashboardPage() {
     <div className="mt-8 grid gap-6 xl:grid-cols-[1.35fr_.65fr]">
       <Card className="overflow-hidden bg-sidebar text-sidebar-foreground"><CardContent className="p-6 md:p-8"><div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between"><div><p className="text-xs text-sidebar-foreground/60">قوة ملفك أمام الشركات</p><p className="mt-3 text-4xl font-bold">{profile.completion}%</p><p className="mt-2 max-w-md text-sm leading-6 text-sidebar-foreground/65">أنت قريب من ملف مكتمل. إضافة رابط مشروع حديث ستجعل قصتك المهنية أكثر وضوحاً.</p></div><div className="grid place-items-center"><ScoreRing score={profile.completion} size="lg" /></div></div><div className="mt-7 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-[#f2c66d]" style={{ width: `${profile.completion}%` }} /></div><div className="mt-5 flex flex-wrap gap-2 text-xs text-sidebar-foreground/70"><span className="rounded-full bg-white/10 px-3 py-1.5">المعلومات الأساسية <Check className="ms-1 inline h-3 w-3 text-[#f2c66d]" /></span><span className="rounded-full bg-white/10 px-3 py-1.5">السيرة محللة <Check className="ms-1 inline h-3 w-3 text-[#f2c66d]" /></span><span className="rounded-full bg-white/10 px-3 py-1.5">أضف مشروعاً</span></div></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">قائمة اليوم</CardTitle></CardHeader><CardContent className="space-y-4"><Link href="/seeker/recommendations" className="flex items-center gap-3 rounded-xl bg-primary/5 p-3 hover:bg-primary/10"><div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-4 w-4" /></div><div className="flex-1"><p className="text-sm font-bold">راجع 3 توصيات جديدة</p><p className="mt-1 text-xs text-muted-foreground">أعلى تطابق 92%</p></div><ChevronLeft className="h-4 w-4 text-muted-foreground" /></Link><Link href="/seeker/profile" className="flex items-center gap-3 rounded-xl bg-secondary p-3 hover:bg-secondary/80"><div className="grid h-9 w-9 place-items-center rounded-lg bg-background text-primary"><Pencil className="h-4 w-4" /></div><div className="flex-1"><p className="text-sm font-bold">أكمل تفضيلاتك</p><p className="mt-1 text-xs text-muted-foreground">ساعدنا على تحسين المطابقة</p></div><ChevronLeft className="h-4 w-4 text-muted-foreground" /></Link><Link href="/seeker/applications" className="flex items-center gap-3 rounded-xl border border-border p-3 hover:bg-muted"><div className="grid h-9 w-9 place-items-center rounded-lg bg-muted text-primary"><Clock3 className="h-4 w-4" /></div><div className="flex-1"><p className="text-sm font-bold">تابع طلباتك</p><p className="mt-1 text-xs text-muted-foreground">لديك طلبان قيد المتابعة</p></div><ChevronLeft className="h-4 w-4 text-muted-foreground" /></Link></CardContent></Card>
+    </div>
+
+    <div className="mt-6">
+      <CvInsightsCard completion={profile.completion} />
     </div>
     <div className="mt-10 grid gap-6 xl:grid-cols-[1.2fr_.8fr]"><Card><CardHeader className="flex-row items-center justify-between"><CardTitle className="text-base">الفرص الأقرب لك</CardTitle><Link href="/seeker/recommendations" className="text-xs font-bold text-primary">عرض الكل</Link></CardHeader><CardContent className="grid gap-4 md:grid-cols-2">{(jobs || []).slice(0, 2).map((job, index) => <JobCard key={job.id} job={job} match={[92, 87][index]} />)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">آخر نشاط مهني</CardTitle></CardHeader><CardContent><ActivityList items={candidateActivity} /></CardContent></Card></div>
     <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_.8fr]"><Card><CardHeader><CardTitle className="text-base">آخر طلبات التقديم</CardTitle></CardHeader><CardContent className="space-y-3">{(applications || []).slice(0, 3).map((application) => <div key={application.id} className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-bold">{application.job.title}</p><p className="mt-1 text-xs text-muted-foreground">{application.job.company.name} · {application.appliedAt}</p></div><div className="flex items-center gap-3"><span className="rounded-full bg-accent/15 px-2.5 py-1 text-xs font-semibold text-accent-foreground">قيد المراجعة</span><span className="text-sm font-bold text-primary">{application.matchScore}%</span></div></div>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">حالة السيرة الذاتية</CardTitle></CardHeader><CardContent><div className="flex items-start gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" /></div><div><p className="text-sm font-bold">تم التحليل بنجاح</p><p className="mt-1 text-xs leading-5 text-muted-foreground">راجع المعلومات المستخرجة قبل اعتمادها ضمن ملفك.</p><Link href="/seeker/cv" className="mt-4 inline-block text-xs font-bold text-primary">فتح السيرة <ArrowUpLeft className="inline h-3 w-3" /></Link></div></div></CardContent></Card></div>

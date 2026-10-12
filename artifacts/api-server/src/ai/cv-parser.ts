@@ -13,6 +13,14 @@ export async function parseCvText(cvText: string): Promise<{
   return parseCvWithLLM(cvText);
 }
 
+/**
+ * Role-scoped CV assessment for the public, sign-in-free tool.
+ */
+export async function assessCv(cvText: string, role: string) {
+  const { assessCvForRole } = await import("./llm");
+  return assessCvForRole(cvText, role);
+}
+
 // ─── Extract text from uploaded file (basic text extraction) ───────────────
 
 export function extractTextFromFile(buffer: Buffer, mimeType: string): string {

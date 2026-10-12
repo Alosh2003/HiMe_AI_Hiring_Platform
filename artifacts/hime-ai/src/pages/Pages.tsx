@@ -83,6 +83,14 @@ export function HomePage() {
                   {t('company')} <ArrowUpLeft className="h-4 w-4" />
                 </Link>
               </div>
+              <Link
+                href="/assess"
+                className="mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-5 py-2.5 text-xs font-bold text-accent-foreground hover:bg-accent/20"
+                data-testid="link-hero-assess"
+              >
+                <Sparkles className="h-4 w-4" />
+                قيّم سيرتك الآن — بدون تسجيل
+              </Link>
               <div className="mt-9 flex items-center gap-6 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" />بياناتك ملكك</span>
                 <span className="inline-flex items-center gap-2"><HeartHandshake className="h-4 w-4 text-primary" />قرارات أكثر إنصافاً</span>

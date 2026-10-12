@@ -7,6 +7,7 @@ import companiesRouter from "./companies";
 import applicationsRouter from "./applications";
 import adminRouter from "./admin";
 import matchingRouter from "./matching";
+import assessRouter from "./assess";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/companies", companiesRouter);
 router.use("/applications", applicationsRouter);
 router.use("/admin", adminRouter);
 router.use("/ai", matchingRouter);
+router.use("/assess", assessRouter);
 
 export default router;

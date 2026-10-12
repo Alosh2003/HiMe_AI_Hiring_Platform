@@ -57,7 +57,11 @@ const RETRY_BASE_MS = 400;
  * Gemini's free tier intermittently returns 503/429 under load. Retry with
  * backoff so a transient blip does not silently degrade to rule-based output.
  */
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
+async function callGemini(
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens = 1000,
+): Promise<LLMResponse> {
   if (!GEMINI_API_KEY) return { content: "" };
 
   const url =
@@ -79,7 +83,7 @@ async function callGemini(systemPrompt: string, userPrompt: string): Promise<LLM
           contents: [{ parts: [{ text: userPrompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 1000,
+            maxOutputTokens,
           },
         }),
       });
@@ -116,9 +120,13 @@ async function callGemini(systemPrompt: string, userPrompt: string): Promise<LLM
 
 // ─── Unified LLM caller ───────────────────────────────────────────────────
 
-async function callLLM(systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
+async function callLLM(
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens = 1000,
+): Promise<LLMResponse> {
   if (LLM_PROVIDER === "gemini") {
-    return callGemini(systemPrompt, userPrompt);
+    return callGemini(systemPrompt, userPrompt, maxOutputTokens);
   }
   if (LLM_PROVIDER === "openai") {
     return callOpenAI(systemPrompt, userPrompt);
@@ -138,7 +146,7 @@ export function getLLMProvider(): string {
  * Models often wrap JSON in markdown fences or add a sentence of prose.
  * Strip both before parsing so a fenced reply doesn't silently fall back.
  */
-function extractJson(raw: string): unknown {
+export function extractJson(raw: string): unknown {
   const trimmed = raw.trim();
 
   // ```json ... ``` or ``` ... ```
@@ -200,6 +208,71 @@ Return ONLY the JSON object, no other text.`;
   } catch (err) {
     logger.error({ err }, "parseCvWithLLM failed");
     throw err instanceof Error ? err : new Error("CV parsing failed");
+  }
+}
+
+// ─── CV Assessment (public, role-scoped) ────────────────────────────────────
+
+export interface CvAssessment {
+  overallScore: number;
+  breakdown: {
+    skills: { score: number; matched: string[]; missing: string[] };
+    experience: { score: number; years: number; relevant: string[] };
+    education: { score: number; notes: string };
+    presentation: { score: number; notes: string };
+  };
+  strengths: string[];
+  gaps: string[];
+  recommendations: string[];
+}
+
+/**
+ * Rates a CV against a specific job role. Used by the public, sign-in-free
+ * assessment — so it must never leak CV contents back to the client, only
+ * derived scores and advice.
+ */
+export async function assessCvForRole(
+  cvText: string,
+  role: string,
+): Promise<CvAssessment> {
+  const systemPrompt = `You are a senior technical recruiter assessing how well a CV fits a job role.
+
+Score the CV against the role and return ONLY this JSON object, no other text:
+{
+  "overallScore": 0-100,
+  "breakdown": {
+    "skills": { "score": 0-100, "matched": ["skill the CV has"], "missing": ["skill the role needs"] },
+    "experience": { "score": 0-100, "years": number, "relevant": ["relevant roles"] },
+    "education": { "score": 0-100, "notes": "one sentence" },
+    "presentation": { "score": 0-100, "notes": "one sentence on clarity and structure" }
+  },
+  "strengths": ["2-4 specific strengths"],
+  "gaps": ["2-4 concrete gaps"],
+  "recommendations": ["3-5 actionable improvements, most impactful first"]
+}
+
+Be specific and honest. A score of 100 means nothing is missing. Every
+recommendation must be something the candidate can actually change.`;
+
+  try {
+    // The assessment JSON is much larger than a CV parse; 1000 tokens cut it
+    // off mid-object (finishReason: MAX_TOKENS) and produced invalid JSON.
+    const result = await callLLM(systemPrompt, `Job role: ${role}\n\nCV:\n${cvText.slice(0, 40_000)}`, 4000);
+    const parsed = extractJson(result.content) as CvAssessment;
+
+    if (
+      typeof parsed?.overallScore !== "number" ||
+      !Array.isArray(parsed?.recommendations) ||
+      !Array.isArray(parsed?.strengths) ||
+      !parsed?.breakdown
+    ) {
+      throw new Error("Assessment missing required fields");
+    }
+
+    return parsed;
+  } catch (err) {
+    logger.error({ err }, "assessCvForRole failed");
+    throw err instanceof Error ? err : new Error("CV assessment failed");
   }
 }
 
