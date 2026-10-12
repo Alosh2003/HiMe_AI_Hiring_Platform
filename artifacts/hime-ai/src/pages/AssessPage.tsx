@@ -89,6 +89,7 @@ export function AssessPage() {
   const [dragOver, setDragOver] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [rateLimited, setRateLimited] = useState(false);
   const [result, setResult] = useState<Assessment | null>(null);
 
   const submit = async (event: FormEvent) => {
@@ -97,11 +98,13 @@ export function AssessPage() {
 
     const fileError = validateAssessFile(file);
     if (fileError) {
+      setRateLimited(false);
       setError(fileError);
       return;
     }
 
     setSubmitting(true);
+    setRateLimited(false);
     setError('');
 
     try {
@@ -110,7 +113,13 @@ export function AssessPage() {
       setResult(assessment);
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
-        setError('Assessment limit reached. Create a free account for unlimited assessments.');
+        // The free anonymous quota is spent. Say so in Arabic, say when it
+        // resets, and offer the account path that removes the limit.
+        setRateLimited(true);
+        const minutes = typeof err.retryAfter === 'number' ? Math.max(1, Math.ceil(err.retryAfter / 60)) : null;
+        setError(
+          `وصلت إلى الحد المجاني للتقييم${minutes ? ` — يمكنك المحاولة مجدداً بعد ${minutes} دقيقة` : ''}. أنشئ حساباً مجانياً للحصول على تقييمات بلا حدود.`,
+        );
       } else {
         setError(err instanceof Error ? err.message : 'Assessment failed. Please try again.');
       }
@@ -124,6 +133,7 @@ export function AssessPage() {
     setFile(null);
     setRole('');
     setError('');
+    setRateLimited(false);
   };
 
   return (
@@ -204,9 +214,19 @@ export function AssessPage() {
                 </div>
 
                 {error && (
-                  <p className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-assess">
-                    {error}
-                  </p>
+                  <div className="space-y-3 rounded-lg bg-destructive/10 p-4" role="alert" data-testid="error-assess">
+                    <p className="text-xs leading-6 text-destructive">{error}</p>
+                    {rateLimited && (
+                      <Button
+                        type="button"
+                        className="w-full"
+                        onClick={() => navigate('/register')}
+                        data-testid="link-assess-limit-to-register"
+                      >
+                        إنشاء حساب مجاني <ArrowUpLeft className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 )}
 
                 <Button

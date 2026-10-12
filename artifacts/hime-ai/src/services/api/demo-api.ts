@@ -22,10 +22,16 @@ function getToken(): string | null {
 /** Error carrying the HTTP status so callers can branch on 404/403 etc. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** The server's own message (e.g. rate-limit wording), when provided. */
+  readonly detail?: string;
+  /** Seconds until a rate limit resets, when the server says so. */
+  readonly retryAfter?: number;
+  constructor(message: string, status: number, detail?: string, retryAfter?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.detail = detail;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -43,8 +49,17 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
 
   const response = await fetch(`${baseUrl}/api${path}`, { ...options, headers });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new ApiError(error.error || `Request failed: ${response.status}`, response.status);
+    const body = await response.json().catch(() => ({})) as {
+      error?: string;
+      message?: string;
+      retryAfter?: number;
+    };
+    throw new ApiError(
+      body.error || `Request failed: ${response.status}`,
+      response.status,
+      body.message,
+      typeof body.retryAfter === 'number' ? body.retryAfter : undefined,
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

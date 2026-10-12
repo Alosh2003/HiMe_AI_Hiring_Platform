@@ -1,9 +1,10 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod/v4";
 import { parseDocument } from "../services/document-parser";
 import { assessCv } from "../ai/cv-parser";
-import { assessRateLimiter } from "../middleware/rate-limiter";
+import { assessRateLimiter, aiRateLimiter } from "../middleware/rate-limiter";
+import { verifyToken } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -46,15 +47,30 @@ const assessmentSchema = z.object({
   cvText: z.string().max(50_000).optional(),
 });
 
+type Limiter = (req: Request, res: Response, next: () => void) => void;
+
+/**
+ * Runs an express rate limiter inside the handler and reports whether the
+ * request survived. The limiter answers 429 itself when exceeded.
+ */
+function runLimiter(req: Request, res: Response, limiter: Limiter): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    limiter(req, res, () => resolve(true));
+    // The limiter is synchronous: it either called next() above or sent 429.
+    setImmediate(() => resolve(!res.headersSent));
+  });
+}
+
 /**
  * Public CV assessment — no account needed.
  *
- * Deliberately rate-limited hard: every call spends a Gemini request, and
- * unlike the authenticated matcher there is no user to absorb the cost.
+ * The expensive step is the Gemini call, so the rate limit is applied only
+ * after the request has proven valid: malformed requests get a 400 without
+ * touching anyone's budget. Signed-in users fall under the regular AI limit
+ * instead of the anonymous one.
  */
 router.post(
   "/",
-  assessRateLimiter,
   upload.single("file"),
   async (req, res) => {
     const parsed = assessmentSchema.safeParse(req.body);
@@ -79,10 +95,17 @@ router.post(
 
     if (!cvText || cvText.trim().length < 50) {
       res.status(400).json({
-        error: "Not enough text to assess. Upload a CV or paste its contents.",
+        error: "Not enough text to assess. The document may be an image-only scan — try pasting the text instead.",
       });
       return;
     }
+
+    // Only valid, billable requests reach the limiter.
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    const signedIn = token ? verifyToken(token) !== null : false;
+    const allowed = await runLimiter(req, res, signedIn ? aiRateLimiter : assessRateLimiter);
+    if (!allowed) return;
 
     try {
       const assessment = await assessCv(cvText, role);

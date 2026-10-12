@@ -98,12 +98,13 @@ export const aiRateLimiter = rateLimiter({
 });
 
 /**
- * Hard limit for the public CV assessment. It costs a Gemini call per request
- * and has no authenticated user to bill, so it is capped aggressively.
+ * Limit for the anonymous public CV assessment. Each valid call spends a
+ * Gemini request with no user attached, so it stays tight — but invalid
+ * requests never reach it, so real users are unlikely to hit it by accident.
  */
 export const assessRateLimiter = rateLimiter({
   name: "assess",
   windowMs: 60 * 60 * 1000,
-  maxRequests: 3,
+  maxRequests: 10,
   message: "Assessment limit reached. Create a free account for unlimited assessments.",
 });

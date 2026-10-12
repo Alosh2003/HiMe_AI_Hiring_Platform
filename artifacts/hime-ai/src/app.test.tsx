@@ -469,6 +469,36 @@ describe('public CV assessment', () => {
     expect(saved.overallScore).toBe(85);
     expect(saved.recommendations.length).toBeGreaterThan(0);
   });
+
+  it('explains the free quota in Arabic and offers registration when limited', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    server.use(
+      http.post('*/api/assess', async () => {
+        return HttpResponse.json(
+          { error: 'Too Many Requests', message: 'Assessment limit reached.', retryAfter: 1800 },
+          { status: 429 },
+        );
+      }),
+    );
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Data Analyst' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+
+    const box = await screen.findByTestId('error-assess', {}, { timeout: 5000 });
+    expect(box).toHaveTextContent('الحد المجاني');
+    expect(box).toHaveTextContent('30 دقيقة');
+
+    const cta = await screen.findByTestId('link-assess-limit-to-register');
+    fireEvent.click(cta);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/register');
+    }, { timeout: 3000 });
+  });
 });
 
 // ─── CV upload ──────────────────────────────────────────────────────────────

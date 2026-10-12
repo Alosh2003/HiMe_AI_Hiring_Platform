@@ -30,6 +30,11 @@ async function buildAll() {
     external: [
       "*.node",
       "sharp",
+      // pdf-parse (pdf.js) loads its worker file and optional canvas at
+      // runtime by path; bundling it breaks both, so keep it external.
+      "pdf-parse",
+      "pdfjs-dist",
+      "@napi-rs/canvas",
       "better-sqlite3",
       "sqlite3",
       "canvas",
