@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import App from './App';
 import { server, TEST_IDS } from '@/test/msw';
+import { assessRedirectTarget } from '@/lib/routes';
 
 const JOB_ID = TEST_IDS.job1;
 const CANDIDATE_ID = TEST_IDS.candidate1;
@@ -469,6 +470,159 @@ describe('public CV assessment', () => {
     expect(saved.overallScore).toBe(85);
     expect(saved.recommendations.length).toBeGreaterThan(0);
   });
+
+// ─── Assessment redirect targets (pure logic) ───────────────────────────────
+
+describe('assessRedirectTarget', () => {
+  it('sends a first-time visitor to register', () => {
+    expect(assessRedirectTarget(false, null, 95)).toBe('/register');
+    expect(assessRedirectTarget(false, 'seeker', 20)).toBe('/register');
+  });
+
+  it('sends a signed-in seeker with a strong score to matching jobs', () => {
+    expect(assessRedirectTarget(true, 'seeker', 85)).toBe('/seeker/recommendations');
+    expect(assessRedirectTarget(true, 'seeker', 60)).toBe('/seeker/recommendations');
+  });
+
+  it('sends a signed-in seeker with a weak score to improve the CV first', () => {
+    expect(assessRedirectTarget(true, 'seeker', 59)).toBe('/seeker/cv');
+    expect(assessRedirectTarget(true, 'seeker', 0)).toBe('/seeker/cv');
+  });
+
+  it('sends other roles to their own dashboard', () => {
+    expect(assessRedirectTarget(true, 'company', 90)).toBe('/company/dashboard');
+    expect(assessRedirectTarget(true, 'admin', 90)).toBe('/admin/dashboard');
+  });
+});
+
+// ─── Assessment redirect banner ─────────────────────────────────────────────
+
+describe('assessment redirect banner', () => {
+  it('tells a first-time visitor they are heading to register', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Data Analyst' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+    // The banner arrives one render after the result (the countdown starts in
+    // an effect), so wait for it explicitly instead of racing it.
+    await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
+
+    expect(screen.getByTestId('button-assess-continue')).toHaveTextContent('إنشاء حساب مجاني');
+    expect(screen.getByTestId('text-assess-redirect-countdown')).toHaveTextContent('خلال 8 ثوانٍ');
+  });
+
+  it('stays on the results when the visitor asks to stay', async () => {
+    localStorage.removeItem('hime_ai_token');
+    localStorage.removeItem('hime_ai_user');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Data Analyst' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+    // Same race as above: the stay button lives inside the banner.
+    await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
+
+    fireEvent.click(screen.getByTestId('button-assess-stay'));
+
+    expect(window.location.pathname).toBe('/assess');
+    expect(screen.getByTestId('status-assess-result')).toBeInTheDocument();
+    expect(screen.queryByTestId('banner-assess-redirect')).not.toBeInTheDocument();
+  });
+
+  it('points a signed-in seeker with a strong score at matching jobs', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Backend Engineer' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    // Mocked score is 85, above the threshold.
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+    // Banner (and its continue button) arrives one render after the result.
+    await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
+
+    // No register CTA for signed-in users — a continue card instead.
+    expect(screen.queryByTestId('link-assess-to-register')).not.toBeInTheDocument();
+    expect(screen.getByTestId('card-assess-continue')).toBeInTheDocument();
+    expect(screen.getByTestId('button-assess-continue')).toHaveTextContent('استكشف الوظائف المطابقة');
+
+    fireEvent.click(screen.getByTestId('button-assess-continue'));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/recommendations');
+    });
+  });
+
+  it('points a signed-in seeker with a weak score at CV improvement', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.post('*/api/assess', async () => {
+        return HttpResponse.json({
+          overallScore: 42,
+          role: 'Data Analyst',
+          breakdown: {
+            skills: { score: 40, matched: [], missing: ['SQL'] },
+            experience: { score: 45, years: 1, relevant: [] },
+            education: { score: 60, notes: 'ok' },
+            presentation: { score: 50, notes: 'ok' },
+          },
+          strengths: ['motivation'],
+          gaps: ['experience'],
+          recommendations: ['Add a SQL project'],
+        });
+      }),
+    );
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Data Analyst' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+    // Banner (and its continue button) arrives one render after the result.
+    await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
+
+    expect(screen.getByTestId('button-assess-continue')).toHaveTextContent('حسّن سيرتك');
+
+    fireEvent.click(screen.getByTestId('button-assess-continue'));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/seeker/cv');
+    });
+  });
+
+  it('points a signed-in company at its own dashboard', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/assess');
+
+    fireEvent.change(screen.getByTestId('input-assess-role'), { target: { value: 'Designer' } });
+    fireEvent.change(screen.getByTestId('input-assess-file'), {
+      target: { files: [new File(['cv'], 'cv.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-assess'));
+    await screen.findByTestId('status-assess-result', {}, { timeout: 5000 });
+    // Banner (and its continue button) arrives one render after the result.
+    await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
+
+    fireEvent.click(screen.getByTestId('button-assess-continue'));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/company/dashboard');
+    });
+  });
+});
 
   it('explains the free quota in Arabic and offers registration when limited', async () => {
     localStorage.removeItem('hime_ai_token');

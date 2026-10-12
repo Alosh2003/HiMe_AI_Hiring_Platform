@@ -19,6 +19,31 @@ export const ONBOARDING_START: Record<UserRole, string> = {
 };
 
 /**
+ * Post-assessment destination.
+ *
+ * A visitor without an account is sent to register so the funnel continues.
+ * A signed-in seeker with a strong score goes straight to matching jobs,
+ * while a weak score routes to the CV page first so they improve before
+ * applying. Other roles fall back to their own dashboard.
+ */
+export const ASSESS_SCORE_THRESHOLD = 60;
+export const ASSESS_REDIRECT_DELAY_MS = 8000;
+
+export function assessRedirectTarget(
+  isAuthenticated: boolean,
+  role: UserRole | undefined | null,
+  overallScore: number,
+): string {
+  if (!isAuthenticated) return '/register';
+  if (role === 'seeker') {
+    return overallScore >= ASSESS_SCORE_THRESHOLD
+      ? '/seeker/recommendations'
+      : '/seeker/cv';
+  }
+  return roleHome(role);
+}
+
+/**
  * Post-registration destination.
  *
  * A first-time account goes straight into onboarding; a returning one goes to

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowUpLeft, Check, CheckCircle2, CircleAlert, FileText, Sparkles, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { PublicNav } from '@/components/app-kit';
 import { ScoreRing } from '@/components/app-kit';
 import { useLanguage } from '@/i18n';
+import { useAuth } from '@/contexts/auth-context';
+import { ASSESS_REDIRECT_DELAY_MS, assessRedirectTarget } from '@/lib/routes';
 import { assessCv as assessCvApi, ApiError, type CvAssessment } from '@/services/api/demo-api';
 
 type Assessment = CvAssessment;
@@ -83,6 +85,7 @@ function BulletList({ items, tone }: { items: string[]; tone: 'good' | 'bad' }) 
  */
 export function AssessPage() {
   const { t } = useLanguage();
+  const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
   const [role, setRole] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -91,6 +94,46 @@ export function AssessPage() {
   const [error, setError] = useState('');
   const [rateLimited, setRateLimited] = useState(false);
   const [result, setResult] = useState<Assessment | null>(null);
+  // Countdown to the automatic redirect; cleared when the visitor stays.
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [stayed, setStayed] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  // Where this assessment leads: register for guests, matching jobs or CV
+  // improvement for signed-in seekers, own dashboard for other roles.
+  const target = useMemo(
+    () => (result ? assessRedirectTarget(isAuthenticated, user?.role, result.overallScore) : null),
+    [result, isAuthenticated, user?.role],
+  );
+
+  useEffect(() => {
+    if (!result || !target || stayed) return;
+
+    setSecondsLeft(Math.ceil(ASSESS_REDIRECT_DELAY_MS / 1000));
+    timerRef.current = window.setInterval(() => {
+      setSecondsLeft((prev) => (prev === null ? null : Math.max(0, prev - 1)));
+    }, 1000);
+
+    return () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
+  }, [result, target, stayed]);
+
+  // The actual redirect lives outside the interval so a re-render can never
+  // fire it twice.
+  useEffect(() => {
+    if (result && target && !stayed && secondsLeft === 0) {
+      stopTimer();
+      navigate(target);
+    }
+  }, [result, target, stayed, secondsLeft, navigate]);
+
+  const stopTimer = () => {
+    if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    timerRef.current = null;
+    setSecondsLeft(null);
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -129,12 +172,35 @@ export function AssessPage() {
   };
 
   const reset = () => {
+    stopTimer();
     setResult(null);
     setFile(null);
     setRole('');
     setError('');
     setRateLimited(false);
+    setStayed(false);
   };
+
+  const stay = () => {
+    stopTimer();
+    setStayed(true);
+  };
+
+  const goNow = () => {
+    if (!target) return;
+    stopTimer();
+    navigate(target);
+  };
+
+  const redirectCopy = !result || !target
+    ? null
+    : !isAuthenticated
+      ? { title: 'نتيجتك محفوظة — لنكمل', body: 'سيتم تحويلك إلى إنشاء حساب مجاني لاستكشاف الوظائف المطابقة.', cta: 'إنشاء حساب مجاني' }
+      : target === '/seeker/recommendations'
+        ? { title: 'نتيجتك قوية — شاهد وظائفك', body: 'سيتم تحويلك إلى الوظائف المطابقة لملفك.', cta: 'استكشف الوظائف المطابقة' }
+        : target === '/seeker/cv'
+          ? { title: 'قوِّ سيرتك أولاً', body: 'سيتم تحويلك إلى صفحة السيرة الذاتية لتحسين النقاط أدناه قبل التقديم.', cta: 'حسّن سيرتك' }
+          : { title: 'العودة إلى لوحة التحكم', body: 'سيتم تحويلك إلى لوحة التحكم الخاصة بك.', cta: 'الانتقال إلى لوحة التحكم' };
 
   return (
     <div className="grain">
@@ -248,6 +314,26 @@ export function AssessPage() {
           </form>
         ) : (
           <div className="space-y-8" data-testid="status-assess-result">
+            {redirectCopy && !stayed && secondsLeft !== null && (
+              <div
+                className="mx-auto flex max-w-2xl flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center"
+                data-testid="banner-assess-redirect"
+              >
+                <p className="text-sm font-bold">{redirectCopy.title}</p>
+                <p className="text-xs leading-6 text-muted-foreground">
+                  {redirectCopy.body}{' '}
+                  <span data-testid="text-assess-redirect-countdown">خلال {secondsLeft} ثوانٍ</span>
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button size="sm" onClick={goNow} data-testid="button-assess-continue">
+                    {redirectCopy.cta} <ArrowUpLeft className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={stay} data-testid="button-assess-stay">
+                    البقاء هنا
+                  </Button>
+                </div>
+              </div>
+            )}
             {/* Header + score */}
             <Card className="mx-auto max-w-2xl overflow-hidden">
               <div className="bg-sidebar p-6 text-center text-sidebar-foreground md:p-10">
@@ -334,23 +420,41 @@ export function AssessPage() {
               </CardContent>
             </Card>
 
-            {/* CTA */}
-            <Card className="mx-auto max-w-2xl overflow-hidden bg-sidebar text-sidebar-foreground">
-              <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
-                <p className="text-lg font-bold">هل تريد رؤية الوظائف التي تطابق ملفك؟</p>
-                <p className="max-w-md text-sm leading-6 text-sidebar-foreground/70">
-                  سجّل مجاناً لاستكشاف الوظائف المطابقة، وتحسين توصيات التقييم
-                  باستمرار، واستقبال الطلبات — كل ذلك في مكان واحد.
-                </p>
-                <Button
-                  onClick={() => navigate('/register')}
-                  className="w-full sm:w-auto"
-                  data-testid="link-assess-to-register"
-                >
-                  إنشاء حساب مجاني <ArrowUpLeft className="h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Card>
+            {/* Continue */}
+            {isAuthenticated && redirectCopy ? (
+              <Card className="mx-auto max-w-2xl overflow-hidden bg-sidebar text-sidebar-foreground" data-testid="card-assess-continue">
+                <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+                  <p className="text-lg font-bold">{redirectCopy.title}</p>
+                  <p className="max-w-md text-sm leading-6 text-sidebar-foreground/70">
+                    {redirectCopy.body}
+                  </p>
+                  <Button
+                    onClick={goNow}
+                    className="w-full sm:w-auto"
+                    data-testid="link-assess-continue"
+                  >
+                    {redirectCopy.cta} <ArrowUpLeft className="h-4 w-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="mx-auto max-w-2xl overflow-hidden bg-sidebar text-sidebar-foreground">
+                <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+                  <p className="text-lg font-bold">هل تريد رؤية الوظائف التي تطابق ملفك؟</p>
+                  <p className="max-w-md text-sm leading-6 text-sidebar-foreground/70">
+                    سجّل مجاناً لاستكشاف الوظائف المطابقة، وتحسين توصيات التقييم
+                    باستمرار، واستقبال الطلبات — كل ذلك في مكان واحد.
+                  </p>
+                  <Button
+                    onClick={() => navigate('/register')}
+                    className="w-full sm:w-auto"
+                    data-testid="link-assess-to-register"
+                  >
+                    إنشاء حساب مجاني <ArrowUpLeft className="h-4 w-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
       </main>
