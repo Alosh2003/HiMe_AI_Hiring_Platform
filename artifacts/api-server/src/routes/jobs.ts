@@ -6,6 +6,8 @@ import { jobsTable, companiesTable, jobSkillsTable, skillsTable } from "@workspa
 import { authMiddleware, requireRole, verifyToken, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
 import { writeAudit } from "../lib/audit";
+import { analyzeJobDescription } from "../ai/llm";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -281,7 +283,50 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
     targetId: newJob[0].id,
     meta: { companyId: company.id, title: data.title },
   });
+
+  // AI enrichment runs after the response: extracting skills from the
+  // description takes tens of seconds on a local model, and the poster
+  // should not wait for it. Until it lands, the job carries whatever skills
+  // were submitted — the matcher degrades gracefully, then gets the rest.
+  void mergeAiSkills(
+    newJob[0].id,
+    data.description,
+    new Set(allSkills.map((s) => s.name.toLowerCase())),
+  ).catch((err) => logger.error({ err, jobId: newJob[0].id }, "AI skill enrichment failed"));
 });
+
+/**
+ * Asks the LLM which skills the description implies and links any it finds
+ * that the poster did not list. Deduplicates case-insensitively against the
+ * skills already attached to the job.
+ */
+async function mergeAiSkills(
+  jobId: string,
+  description: string,
+  alreadyPresent: Set<string>,
+): Promise<void> {
+  const analysis = await analyzeJobDescription(description);
+
+  const addSkill = async (rawName: string, isRequired: boolean): Promise<void> => {
+    const name = rawName.trim().slice(0, 100);
+    if (!name || alreadyPresent.has(name.toLowerCase())) return;
+
+    let record = await db.query.skillsTable.findFirst({ where: eq(skillsTable.name, name) });
+    if (!record) {
+      const inserted = await db.insert(skillsTable).values({ name, category: "professional" }).returning();
+      record = inserted[0];
+    }
+    await db.insert(jobSkillsTable).values({ jobId, skillId: record.id, isRequired });
+    alreadyPresent.add(name.toLowerCase());
+  };
+
+  for (const name of (analysis.requiredSkills ?? []).slice(0, 10)) {
+    await addSkill(name, true);
+  }
+  for (const name of (analysis.preferredSkills ?? []).slice(0, 10)) {
+    await addSkill(name, false);
+  }
+}
 
 router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("id"), async (req: AuthRequest, res) => {
   const jobId = req.params.id as string;

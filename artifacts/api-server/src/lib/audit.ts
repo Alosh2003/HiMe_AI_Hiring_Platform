@@ -8,7 +8,8 @@ export type AuditAction =
   | "company.suspend"
   | "company.verification.request"
   | "job.delete"
-  | "job.create";
+  | "job.create"
+  | "user.password.reset";
 
 /**
  * Records a privileged action. Logging must never break the request it

@@ -18,6 +18,10 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default("http://localhost:3000"),
   RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
   RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
+  /** "log" captures email in the outbox table; real transports plug in here. */
+  EMAIL_PROVIDER: z.enum(["log"]).default("log"),
+  /** "postgres" shares counters across processes and survives restarts. */
+  RATE_LIMIT_STORE: z.enum(["postgres", "memory"]).default("postgres"),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

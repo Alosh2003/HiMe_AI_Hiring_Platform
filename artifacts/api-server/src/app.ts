@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { readFileSync } from "fs";
 import { getConfig, isProduction } from "./config/env";
 import { globalRateLimiter } from "./middleware/rate-limiter";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler";
@@ -71,7 +72,7 @@ app.get("/", (_req, res) => {
   res.json({
     name: "HiMe AI Hiring Platform API",
     version: "1.0.0",
-    docs: "See README.md for the full endpoint list.",
+    docs: "/api/openapi.json",
     ui: config.FRONTEND_URL || "http://localhost:3000",
     endpoints: {
       health: "/healthz",
@@ -84,6 +85,24 @@ app.get("/", (_req, res) => {
       admin: "/api/admin",
     },
   });
+});
+
+// OpenAPI spec — hand-maintained at artifacts/api-server/openapi.json and
+// read lazily once; the path resolves from both src/ (tsx dev) and dist/
+// (esbuild bundle) because both live one level below the package root.
+let openapiCache: unknown = null;
+app.get("/api/openapi.json", (_req, res) => {
+  if (!openapiCache) {
+    try {
+      openapiCache = JSON.parse(
+        readFileSync(new URL("../openapi.json", import.meta.url), "utf8"),
+      );
+    } catch {
+      res.status(404).json({ error: "openapi.json not found" });
+      return;
+    }
+  }
+  res.json(openapiCache);
 });
 
 // API routes

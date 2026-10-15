@@ -2,11 +2,34 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { applicationsTable, jobsTable, candidatesTable, matchResultsTable, companiesTable } from "@workspace/db/schema";
+import { applicationsTable, jobsTable, candidatesTable, matchResultsTable, companiesTable, usersTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
+import { notify } from "../lib/notify";
+import { sendEmail } from "../lib/email";
+import { getConfig } from "../config/env";
 
 const router: IRouter = Router();
+
+/** Best-effort email to a user's address via the outbox; never throws. */
+async function emailUser(
+  userId: string,
+  kind: string,
+  subject: string,
+  body: string,
+): Promise<void> {
+  try {
+    const user = await db.query.usersTable.findFirst({
+      where: eq(usersTable.id, userId),
+      columns: { email: true },
+    });
+    if (user) {
+      await sendEmail({ to: user.email, kind, subject, body });
+    }
+  } catch {
+    // An email that cannot be sent must not fail the request.
+  }
+}
 
 router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
   const schema = z.object({
@@ -71,6 +94,15 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     .where(eq(jobsTable.id, parsed.data.jobId));
 
   res.status(201).json(application[0]);
+
+  // Confirmation that the application actually landed — the seeker should
+  // not have to guess whether the click registered.
+  void emailUser(
+    req.user!.userId,
+    "application_received",
+    `HiMe AI — استلمنا طلبك لوظيفة: ${job.title}`,
+    `مرحباً،\n\nاستلمنا طلب التقديم على وظيفة "${job.title}". يمكنك متابعة حالة الطلبات من حسابك:\n${getConfig().FRONTEND_URL}/seeker/applications`,
+  );
 });
 
 router.get("/my", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -213,6 +245,43 @@ router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("
     .set({ status: parsed.data.status, updatedAt: new Date() })
     .where(eq(applicationsTable.id, application.id))
     .returning();
+
+  // The seeker should learn about the decision without polling the page.
+  if (updated[0] && updated[0].status !== application.status) {
+    const candidate = await db.query.candidatesTable.findFirst({
+      where: eq(candidatesTable.id, application.candidateId),
+      columns: { userId: true },
+    });
+    if (candidate) {
+      const statusLabels: Record<string, string> = {
+        applied: "تم استلام طلبك",
+        reviewing: "طلبك قيد المراجعة",
+        shortlisted: "تم اختيارك ضمن القائمة المختصرة",
+        interview: "تمت دعوتك للمقابلة",
+        rejected: "للأسف لم يتم قبول طلبك",
+        accepted: "تم قبول طلبك",
+      };
+      await notify({
+        userId: candidate.userId,
+        type: "application_status",
+        title: statusLabels[updated[0].status] ?? "تحديث على طلب التقديم",
+        body: `وظيفة: ${job.title}`,
+        link: "/seeker/applications",
+      });
+
+      // A decision is exactly when silence hurts most: shortlist, interview,
+      // rejection and acceptance also land in the outbox.
+      const decisionStatuses = ["shortlisted", "interview", "rejected", "accepted"];
+      if (decisionStatuses.includes(updated[0].status)) {
+        await emailUser(
+          candidate.userId,
+          "application_status",
+          `HiMe AI — ${statusLabels[updated[0].status] ?? "تحديث على طلب التقديم"}`,
+          `مرحباً،\n\n${statusLabels[updated[0].status] ?? "حدّثنا حالة طلبك"}\nالوظيفة: ${job.title}\n\n${getConfig().FRONTEND_URL}/seeker/applications`,
+        );
+      }
+    }
+  }
 
   res.json(updated[0]);
 });

@@ -157,6 +157,9 @@ export function CompanyDashboardPage() {
   const company = typeof rawCompany === 'function' ? null : rawCompany;
   const { data: rawJobs } = useDemo(demoApi.getCompanyJobs, []);
   const jobs = typeof rawJobs === 'function' ? null : rawJobs;
+  // Real funnel: computed from the applications table, not invented numbers.
+  const { data: rawFunnel } = useDemo(demoApi.companyFunnel, []);
+  const funnel = typeof rawFunnel === 'function' ? null : rawFunnel;
   // Candidates belong to a real job, so derive the id from loaded data
   // rather than hardcoding a demo id that no longer exists in the database.
   const firstJobId = jobs?.[0]?.id;
@@ -169,8 +172,8 @@ export function CompanyDashboardPage() {
   return <RoleShell role="company">
     <PageHeader eyebrow="لوحة الشركة" title="مركز التوظيف الذي يرى الصورة كاملة." description="من أداء الوظائف إلى جودة المرشحين، كل قرار يبدأ من بيانات أوضح." action={<div className="flex gap-2"><Link href="/company/profile" className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold">ملف الشركة</Link><Link href="/company/jobs/new" className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"><Plus className="me-1 inline h-4 w-4" />إضافة وظيفة</Link></div>} />
     <WorkflowGuide role="company" current="manage" />
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="الوظائف النشطة" value={jobs?.length || 0} detail="+2 هذا الشهر" icon={BriefcaseBusiness} /><MetricCard label="طلبات التقديم" value="86" detail="+18% عن الشهر الماضي" icon={FileText} /><MetricCard label="مرشحون جدد" value="24" detail="7 يحتاجون مراجعة" icon={Users} tone="accent" /><MetricCard label="متوسط التطابق" value="88%" detail="+4% هذا الشهر" icon={Target} /></div>
-    <div className="mt-8 grid gap-6 xl:grid-cols-[1.1fr_.9fr]"><Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle className="text-base">قمع التوظيف</CardTitle><p className="mt-1 text-xs text-muted-foreground">آخر 30 يوماً</p></div><Link href="/company/jobs" className="text-xs font-bold text-primary">كل الوظائف</Link></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-4">{[['جديد', 42, 'bg-primary'], ['قيد المراجعة', 28, 'bg-primary/70'], ['مختصر', 11, 'bg-accent'], ['مقابلة', 5, 'bg-[#123e43]']].map(([label, value, color]) => <div key={label} className="rounded-xl bg-secondary p-4"><div className={`mb-4 h-1.5 rounded-full ${color}`} /><p className="text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div><div className="mt-7 flex h-32 items-end gap-2">{[34, 45, 38, 58, 52, 70, 63, 80, 74, 92, 86, 96].map((height, index) => <div key={index} className="flex flex-1 flex-col items-center gap-2"><div className="w-full rounded-t bg-primary/75" style={{ height: `${height}%` }} /><span className="text-[9px] text-muted-foreground">{index + 1}</span></div>)}</div></CardContent></Card><Card><CardHeader><CardTitle className="text-base">نشاط الفريق</CardTitle></CardHeader><CardContent><ActivityList items={companyActivity} /></CardContent></Card></div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="الوظائف النشطة" value={jobs?.filter((j) => j.status === 'active').length || 0} detail={`${jobs?.length ?? 0} وظيفة إجمالاً`} icon={BriefcaseBusiness} /><MetricCard label="طلبات التقديم" value={funnel?.totals.total ?? 0} detail="من كل وظائفك" icon={FileText} /><MetricCard label="قيد المراجعة" value={funnel?.totals.reviewing ?? 0} detail={`${funnel?.totals.shortlisted ?? 0} في القائمة المختصرة`} icon={Users} tone="accent" /><MetricCard label="متوسط التطابق" value={funnel?.totals.avgMatch != null ? `${funnel.totals.avgMatch}%` : '—'} detail="من نتائج المطابقة الفعلية" icon={Target} /></div>
+    <div className="mt-8 grid gap-6 xl:grid-cols-[1.1fr_.9fr]"><Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle className="text-base">قمع التوظيف</CardTitle><p className="mt-1 text-xs text-muted-foreground">محسوب من طلبات التقديم الفعلية</p></div><Link href="/company/jobs" className="text-xs font-bold text-primary">كل الوظائف</Link></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-4">{[['جديد', funnel?.totals.applied ?? 0, 'bg-primary'], ['قيد المراجعة', funnel?.totals.reviewing ?? 0, 'bg-primary/70'], ['مختصر', funnel?.totals.shortlisted ?? 0, 'bg-accent'], ['مقابلة', funnel?.totals.interview ?? 0, 'bg-[#123e43]']].map(([label, value, color]) => <div key={label as string} className="rounded-xl bg-secondary p-4"><div className={`mb-4 h-1.5 rounded-full ${color as string}`} /><p className="text-2xl font-bold">{value as number}</p><p className="mt-1 text-xs text-muted-foreground">{label as string}</p></div>)}</div>{(funnel?.jobs?.length ?? 0) > 0 && <div className="mt-6 space-y-2">{funnel!.jobs.map((j) => <div key={j.jobId} className="flex items-center justify-between gap-3 text-xs" data-testid={`row-funnel-job-${j.jobId}`}><span className="truncate font-semibold">{j.title}</span><span className="shrink-0 text-muted-foreground">{j.total} طلب{typeof j.avgMatch === 'number' ? ` · تطابق ${j.avgMatch}%` : ''}</span></div>)}</div>}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">نشاط الفريق</CardTitle></CardHeader><CardContent><ActivityList items={companyActivity} /></CardContent></Card></div>
     <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_360px]"><Card><CardHeader className="flex-row items-center justify-between"><CardTitle className="text-base">أفضل المرشحين الآن</CardTitle><Link href={firstJobId ? `/company/jobs/${firstJobId}/candidates` : '/company/jobs'} className="text-xs font-bold text-primary" data-testid="link-top-candidates-list">عرض القائمة</Link></CardHeader><CardContent className="space-y-3">{(candidates || []).map((candidate) => <div key={candidate.id} className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary font-bold text-primary">{candidate.name.slice(0, 2)}</div><div className="flex-1"><p className="text-sm font-bold">{candidate.name}</p><p className="mt-1 text-xs text-muted-foreground">{candidate.headline}</p><div className="mt-2 flex flex-wrap gap-1.5">{candidate.matchedSkills.map((skill) => <span key={skill.id} className="rounded bg-primary/10 px-2 py-1 text-[10px] text-primary">{skill.name}</span>)}</div></div><div className="text-start sm:text-end"><p className="text-xl font-bold text-primary">{candidate.score}%</p><p className="text-[10px] text-muted-foreground">تطابق</p></div></div>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">صحة ملف الشركة</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" /></div><div><p className="text-sm font-bold">ملف موثق</p><p className="mt-1 text-xs text-muted-foreground">تظهر شارة التحقق للمرشحين</p></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex items-center justify-between"><span>اكتمال المعلومات</span><span className="font-bold text-primary">92%</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full w-[92%] rounded-full bg-primary" /></div><Link href="/company/profile" className="mt-4 block text-center text-xs font-bold text-primary">تحسين الملف</Link></div></CardContent></Card></div>
   </RoleShell>;
 }
@@ -231,6 +234,8 @@ export function CompanyProfilePage() {
   const [error, setError] = useState('');
   const [requesting, setRequesting] = useState(false);
   const [current, setCurrent] = useState<Company | null>(null);
+  const [emailGate, setEmailGate] = useState(false);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   const company = { ...(current ?? data ?? {}), ...draft } as Company;
   const status = ((current ?? data)?.verificationStatus ?? 'draft') as VerificationStatus;
@@ -281,6 +286,7 @@ export function CompanyProfilePage() {
     if (requiredMissing.length > 0) return;
     setRequesting(true);
     setError('');
+    setEmailGate(false);
     try {
       // Persist pending edits first so the admin reviews current data, and
       // stop if that failed — otherwise the verification request fails with
@@ -292,10 +298,27 @@ export function CompanyProfilePage() {
       const updated = await demoApi.requestVerification();
       setCurrent(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر إرسال الطلب');
+      // The API refuses companies whose email is unconfirmed (403); show the
+      // dedicated gate instead of a generic failure.
+      if (err instanceof demoApi.ApiError && err.status === 403 && err.message === 'Email verification required') {
+        setEmailGate(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'تعذر إرسال الطلب');
+      }
     } finally {
       setRequesting(false);
       setState((s) => (s === 'saving' ? 'idle' : s));
+    }
+  };
+
+  const resendVerificationEmail = async () => {
+    const email = (JSON.parse(localStorage.getItem('hime_ai_user') || '{}') as { email?: string }).email || '';
+    setResendState('sending');
+    try {
+      await demoApi.resendVerification(email);
+      setResendState('sent');
+    } catch {
+      setResendState('idle');
     }
   };
 
@@ -313,6 +336,22 @@ export function CompanyProfilePage() {
     <WorkflowGuide role="company" current="profile" />
 
     <VerificationBanner status={status} note={(current ?? data)?.verificationNote} />
+
+    {emailGate && (
+      <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4" data-testid="banner-email-verification-required">
+        <p className="text-sm font-bold">أكّد بريدك الإلكتروني أولاً</p>
+        <p className="mt-1 text-xs leading-6 text-muted-foreground">
+          طلب التحقق من الشركة يتطلب بريداً مؤكداً. أرسلنا رابط التأكيد إلى بريدك — افتحه ثم أعد المحاولة.
+        </p>
+        {resendState === 'sent' ? (
+          <p className="mt-2 text-xs font-semibold text-primary" role="status" data-testid="status-email-resend-sent">إذا كان البريد بانتظر التأكيد فسيصلك رابط جديد.</p>
+        ) : (
+          <button type="button" onClick={resendVerificationEmail} disabled={resendState === 'sending'} className="mt-3 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground" data-testid="button-resend-verification">
+            {resendState === 'sending' ? 'جارٍ الإرسال…' : 'إرسال رابط التأكيد مجدداً'}
+          </button>
+        )}
+      </div>
+    )}
 
     {error && <p className="mt-4 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-company-profile">{error}</p>}
 

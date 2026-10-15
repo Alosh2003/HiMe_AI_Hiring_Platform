@@ -421,6 +421,9 @@ export function ApplicationsPage() {
 // ─── Company Jobs Page ────────────────────────────────────────────────────────
 export function CompanyJobsPage() {
   const { data, loading, error, reload } = useDemo(demoApi.getCompanyJobs, []);
+  // Real funnel stats; "متوسط التطابق 88%" used to be a hardcoded string.
+  const { data: rawFunnel } = useDemo(demoApi.companyFunnel, []);
+  const funnel = typeof rawFunnel === 'function' ? null : rawFunnel;
   const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
   if (loading) return <RoleShell role="company"><LoadingState /></RoleShell>;
   if (error || !data) return <RoleShell role="company"><FeedbackState error={error} retry={reload} /></RoleShell>;
@@ -443,8 +446,8 @@ export function CompanyJobsPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         {([
           ['الوظائف النشطة', data.filter(j => j.status === 'active').length, BriefcaseBusiness],
-          ['إجمالي المتقدمين', data.reduce((s, j) => s + j.applicants, 0), Users],
-          ['متوسط التطابق', '88%', Target]
+          ['إجمالي المتقدمين', funnel?.totals.total ?? data.reduce((s, j) => s + j.applicants, 0), Users],
+          ['متوسط التطابق', funnel?.totals.avgMatch != null ? `${funnel.totals.avgMatch}%` : '—', Target]
         ] as const).map(([label, value, Icon]) => (
           <Card key={label as string}>
             <CardContent className="flex items-center gap-4 p-5">

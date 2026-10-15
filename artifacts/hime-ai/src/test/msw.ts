@@ -301,6 +301,58 @@ export const handlers = [
     await delay(5);
     return HttpResponse.json({ status: 'ok' });
   }),
+
+  // Notifications — the RoleShell bell fetches these on mount.
+  http.get('*/api/notifications', async () => {
+    await delay(10);
+    return HttpResponse.json({
+      notifications: [{
+        id: 'n-1',
+        type: 'application_status',
+        title: 'تم اختيارك ضمن القائمة المختصرة',
+        body: `وظيفة: ${job.title}`,
+        link: '/seeker/applications',
+        read: false,
+        createdAt: new Date().toISOString(),
+      }],
+      unreadCount: 1,
+    });
+  }),
+  http.patch('*/api/notifications/:id/read', async () => {
+    await delay(10);
+    return HttpResponse.json({ id: 'n-1', read: true });
+  }),
+  http.post('*/api/notifications/read-all', async () => {
+    await delay(10);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Company funnel — real numbers for the dashboard stats.
+  http.get('*/api/companies/me/funnel', async () => {
+    await delay(10);
+    return HttpResponse.json({
+      jobs: [{ jobId: job.id, title: job.title, status: 'active', total: 2, applied: 1, reviewing: 1, shortlisted: 0, interview: 0, rejected: 0, accepted: 0, avgMatch: 84 }],
+      totals: { total: 2, applied: 1, reviewing: 1, shortlisted: 0, interview: 0, rejected: 0, accepted: 0, avgMatch: 84 },
+    });
+  }),
+
+  // Auth flows: password reset + email verification.
+  http.post('*/api/auth/forgot-password', async () => {
+    await delay(10);
+    return HttpResponse.json({ ok: true, message: 'إذا كان البريد مسجلاً لدينا فسيصلك رابط إعادة التعيين.' });
+  }),
+  http.post('*/api/auth/reset-password', async () => {
+    await delay(10);
+    return HttpResponse.json({ ok: true });
+  }),
+  http.post('*/api/auth/verify-email', async () => {
+    await delay(10);
+    return HttpResponse.json({ ok: true });
+  }),
+  http.post('*/api/auth/resend-verification', async () => {
+    await delay(10);
+    return HttpResponse.json({ ok: true, message: 'إذا كان البريد بانتظر التأكيد فسيصلك رابط جديد.' });
+  }),
 ];
 
 export const server = setupServer(...handlers);

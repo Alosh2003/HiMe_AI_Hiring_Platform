@@ -2,7 +2,24 @@ import type { Application, ApplicationStatus, CandidateProfile, Company, Job, Ma
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
 
-const wait = (ms = 260) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms = 260) => { markDemoFallback(); return new Promise((resolve) => setTimeout(resolve, ms)); };
+
+// ─── Demo-mode visibility ────────────────────────────────────────────────
+// Every call that falls back to fake data marks the UI, which renders a
+// persistent banner. Silently showing invented jobs in a hiring product is
+// worse than saying "the server is unreachable".
+
+let demoModeActive = false;
+
+export function isDemoModeActive(): boolean {
+  return demoModeActive;
+}
+
+function markDemoFallback(): void {
+  if (demoModeActive || typeof window === 'undefined') return;
+  demoModeActive = true;
+  window.dispatchEvent(new CustomEvent('hime-demo-mode'));
+}
 const skills = (names: string[]): import('@/types').Skill[] => names.map((name, index) => ({ id: `${name.toLowerCase().replaceAll(' ', '-')}-${index}`, name, category: 'professional' }));
 let demoCompany: Company = { id: 'c-1', name: 'مِداد للتقنية', industry: 'تقنية المعلومات', location: 'الرياض، السعودية', website: 'medad.example', description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً وإنسانية.', teamSize: '51–200', verified: true };
 let demoCompanies: Company[] = [demoCompany, { id: 'c-2', name: 'سِراج المالية', industry: 'التقنية المالية', location: 'دبي، الإمارات', website: 'siraj.example', description: 'منصة مالية رقمية للجيل القادم.', teamSize: '11–50', verified: true }, { id: 'c-3', name: 'أثر للاستشارات', industry: 'الاستشارات', location: 'جدة، السعودية', website: 'athar.example', description: 'نحو قرارات أعمال أفضل في المنطقة.', teamSize: '51–200', verified: false }];
@@ -376,10 +393,16 @@ export interface AdminCompany extends Company {
   contact?: { name: string; email: string } | null;
 }
 
-export async function listCompaniesForReview(status?: VerificationStatus) {
+export async function listCompaniesForReview(status?: VerificationStatus, page = 1, limit = 50) {
   if (hasApi()) {
-    const q = status ? `?status=${status}` : '';
-    return apiRequest<AdminCompany[]>(`/admin/companies${q}`);
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+    // GET /admin/companies returns { items, pagination }; tolerate the old
+    // bare-array shape so fixtures and older servers keep working.
+    const res = await apiRequest<AdminCompany[] | { items: AdminCompany[] }>(`/admin/companies?${params}`);
+    return Array.isArray(res) ? res : res.items ?? [];
   }
   await wait();
   return demoCompanies as AdminCompany[];
@@ -397,4 +420,97 @@ export async function rejectCompany(id: string, reason: string) {
   await wait(250);
   demoCompanies = demoCompanies.map((c) => c.id === id ? { ...c, verificationStatus: 'rejected' as const, verificationNote: reason } : c);
   return demoCompanies.find((c) => c.id === id)!;
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  link?: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export async function notifications() {
+  if (hasApi()) {
+    return apiRequest<{ notifications: AppNotification[]; unreadCount: number }>('/notifications');
+  }
+  await wait(120);
+  return { notifications: [] as AppNotification[], unreadCount: 0 };
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  if (hasApi()) {
+    await apiRequest<AppNotification>(`/notifications/${id}/read`, { method: 'PATCH' });
+    return;
+  }
+  await wait(80);
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  if (hasApi()) {
+    await apiRequest<void>('/notifications/read-all', { method: 'POST' });
+    return;
+  }
+  await wait(80);
+}
+
+// ─── Company funnel (real numbers from applications) ─────────────────────
+
+export interface FunnelSummary {
+  total: number;
+  applied: number;
+  reviewing: number;
+  shortlisted: number;
+  interview: number;
+  rejected: number;
+  accepted: number;
+  avgMatch: number | null;
+}
+
+export interface CompanyFunnel {
+  jobs: Array<{ jobId: string; title: string; status: string } & FunnelSummary>;
+  totals: FunnelSummary;
+}
+
+export async function companyFunnel(): Promise<CompanyFunnel> {
+  if (hasApi()) return apiRequest<CompanyFunnel>('/companies/me/funnel');
+  await wait(200);
+  return {
+    jobs: [],
+    totals: { total: 0, applied: 0, reviewing: 0, shortlisted: 0, interview: 0, rejected: 0, accepted: 0, avgMatch: null },
+  };
+}
+
+// ─── Password reset & email verification ─────────────────────────────────
+
+export async function forgotPassword(email: string) {
+  return apiRequest<{ ok: boolean; message: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, password: string) {
+  return apiRequest<{ ok: boolean }>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+}
+
+export async function verifyEmail(token: string) {
+  return apiRequest<{ ok: boolean }>('/auth/verify-email', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendVerification(email: string) {
+  return apiRequest<{ ok: boolean; message: string }>('/auth/resend-verification', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
 }

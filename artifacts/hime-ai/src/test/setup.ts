@@ -17,7 +17,10 @@ const DEFAULT_USER = {
   role: 'seeker',
 };
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
+// Hermetic by default (task 3.2): any request that escapes MSW fails the
+// test loudly instead of quietly hitting a live database. Results no longer
+// depend on seeded rows existing on the developer's machine.
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 
 /**
  * jsdom installs its own File/FormData, but MSW's fetch interceptor reads the

@@ -68,6 +68,11 @@ catalog:
 
 autoInstallPeers: false
 
+# Skip the dependency pre-check that re-runs `pnpm install` (and its failing
+# sh-based preinstall) before every script on Windows. Run `pnpm install
+# --ignore-scripts` manually after changing dependencies instead.
+verifyDepsBeforeRun: false
+
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild

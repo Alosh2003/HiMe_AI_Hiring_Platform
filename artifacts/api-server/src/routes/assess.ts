@@ -52,12 +52,27 @@ type Limiter = (req: Request, res: Response, next: () => void) => void;
 /**
  * Runs an express rate limiter inside the handler and reports whether the
  * request survived. The limiter answers 429 itself when exceeded.
+ *
+ * The limiter may now consult the shared Postgres store, so it is no longer
+ * guaranteed to be synchronous: we wait for either next() (allowed) or the
+ * response finishing (rejected), with a generous timeout so a dead store can
+ * never hang an assessment request.
  */
 function runLimiter(req: Request, res: Response, limiter: Limiter): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    limiter(req, res, () => resolve(true));
-    // The limiter is synchronous: it either called next() above or sent 429.
-    setImmediate(() => resolve(!res.headersSent));
+    let settled = false;
+    const done = (allowed: boolean) => {
+      if (!settled) {
+        settled = true;
+        resolve(allowed);
+      }
+    };
+
+    limiter(req, res, () => done(true));
+    // A 429 (or any limiter-generated response) reaches 'finish'.
+    res.once("finish", () => done(false));
+    res.once("close", () => done(false));
+    setTimeout(() => done(false), 10_000).unref?.();
   });
 }
 

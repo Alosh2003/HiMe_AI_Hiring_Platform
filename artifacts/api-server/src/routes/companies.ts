@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { companiesTable, jobsTable, jobSkillsTable, skillsTable } from "@workspace/db/schema";
+import { companiesTable, jobsTable, jobSkillsTable, skillsTable, applicationsTable, usersTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
 import { writeAudit } from "../lib/audit";
@@ -120,6 +120,20 @@ router.post("/verification/request", authMiddleware, requireRole("company"), asy
 
   if (!company) {
     res.status(400).json({ error: "Complete your company profile before requesting verification" });
+    return;
+  }
+
+  // Company verification must rest on a proven address: an unverified email
+  // cannot vouch for a company. This is what makes O2 mean something.
+  const owner = await db.query.usersTable.findFirst({
+    where: eq(usersTable.id, company.userId),
+    columns: { emailVerified: true },
+  });
+  if (!owner?.emailVerified) {
+    res.status(403).json({
+      error: "Email verification required",
+      message: "Confirm your email address first — check your inbox for the verification link.",
+    });
     return;
   }
 
@@ -248,6 +262,57 @@ router.patch("/profile", authMiddleware, requireRole("company"), async (req: Aut
     .returning();
 
   res.json(updated[0]);
+});
+
+/**
+ * The hiring funnel, computed from real applications. The dashboard used to
+ * render fixed numbers ("86 طلباً، متوسط التطابق 88%") that no query ever
+ * produced; this endpoint is where those figures come from now.
+ */
+router.get("/me/funnel", authMiddleware, requireRole("company"), async (req: AuthRequest, res) => {
+  const company = await db.query.companiesTable.findFirst({
+    where: eq(companiesTable.userId, req.user!.userId),
+  });
+
+  if (!company) {
+    res.status(404).json({ error: "Company profile not found" });
+    return;
+  }
+
+  const jobs = await db.query.jobsTable.findMany({
+    where: eq(jobsTable.companyId, company.id),
+    columns: { id: true, title: true, status: true },
+  });
+
+  const jobIds = jobs.map((j) => j.id);
+  const applications = jobIds.length > 0
+    ? await db.query.applicationsTable.findMany({
+        where: inArray(applicationsTable.jobId, jobIds),
+        columns: { jobId: true, status: true, matchScore: true },
+      })
+    : [];
+
+  const statuses = ["applied", "reviewing", "shortlisted", "interview", "rejected", "accepted"] as const;
+  const average = (scores: Array<number | null>): number | null => {
+    const real = scores.filter((s): s is number => typeof s === "number");
+    if (real.length === 0) return null;
+    return Math.round(real.reduce((sum, s) => sum + s, 0) / real.length);
+  };
+
+  const summarize = (rows: typeof applications) => {
+    const counts = Object.fromEntries(statuses.map((s) => [s, rows.filter((r) => r.status === s).length]));
+    return { total: rows.length, ...counts, avgMatch: average(rows.map((r) => r.matchScore)) };
+  };
+
+  res.json({
+    jobs: jobs.map((job) => ({
+      jobId: job.id,
+      title: job.title,
+      status: job.status,
+      ...summarize(applications.filter((a) => a.jobId === job.id)),
+    })),
+    totals: summarize(applications),
+  });
 });
 
 export default router;

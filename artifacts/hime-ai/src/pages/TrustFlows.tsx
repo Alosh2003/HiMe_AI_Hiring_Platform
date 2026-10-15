@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { ArrowDownLeft, ArrowUpLeft, BriefcaseBusiness, Check, CheckCircle2, CircleAlert, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,8 @@ import { useLanguage } from '@/i18n';
 import { useDemo } from '@/hooks/use-demo';
 import { DashboardLayout } from '@/layouts';
 import { useAuth } from '@/contexts/auth-context';
-import { SocialAuth } from '@/components/social-auth';
 import { resolvePostAuthRedirect, readNextParam, resolveRegistrationRedirect, roleHome } from '@/lib/routes';
-import { login, register, getJob, apply as applyToJob, getProfile, uploadCv } from '@/services/api/demo-api';
+import { login, register, getJob, apply as applyToJob, getProfile, uploadCv, forgotPassword, resetPassword, verifyEmail, resendVerification } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
@@ -72,6 +71,22 @@ export function LoginPage() {
   const [errors, setErrors] = useState<ReturnType<typeof validateLogin>>({});
   const [pending, setPending] = useState(false);
   const [role, setRole] = useState<'seeker' | 'company' | 'admin'>('seeker');
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotState, setForgotState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [forgotMessage, setForgotMessage] = useState('');
+
+  const sendForgot = async () => {
+    setForgotState('sending');
+    try {
+      const res = await forgotPassword(forgotEmail);
+      setForgotMessage(res.message || 'إذا كان البريد مسجلاً لدينا فسيصلك رابط إعادة التعيين.');
+      setForgotState('sent');
+    } catch (err) {
+      setForgotMessage(err instanceof Error ? err.message : 'تعذر إرسال الطلب. حاول مرة أخرى.');
+      setForgotState('error');
+    }
+  };
 
   // Functional update: a stale `values` closure can otherwise drop a sibling
   // field when two updates land in the same React batch.
@@ -110,8 +125,34 @@ export function LoginPage() {
         <FieldWithError label="كلمة المرور" value={values.password} onChange={(password) => field('password')(password)} type="password" placeholder="8 أحرف على الأقل" autoComplete="current-password" error={errors.password} testId="input-login-password" />
         <div className="flex items-center justify-between text-xs">
           <label className="flex items-center gap-2"><input type="checkbox" data-testid="checkbox-remember" /> تذكرني</label>
-          <button type="button" className="font-bold text-primary" data-testid="button-forgot-password">نسيت كلمة المرور؟</button>
+          <button type="button" className="font-bold text-primary" data-testid="button-forgot-password" onClick={() => setForgotOpen((prev) => !prev)} aria-expanded={forgotOpen}>نسيت كلمة المرور؟</button>
         </div>
+
+        {forgotOpen && (
+          <div className="space-y-2 rounded-xl border border-border bg-secondary/40 p-4" data-testid="panel-forgot-password">
+            {forgotState !== 'sent' ? (
+              <>
+                <p className="text-xs text-muted-foreground">أدخل بريدك وسنرسل رابط إعادة التعيين.</p>
+                <Input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(event) => setForgotEmail(event.target.value)}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                  data-testid="input-forgot-email"
+                />
+                <Button type="button" onClick={sendForgot} disabled={forgotState === 'sending' || !forgotEmail.includes('@')} data-testid="button-submit-forgot">
+                  {forgotState === 'sending' ? 'جارٍ الإرسال…' : 'إرسال رابط إعادة التعيين'}
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs font-semibold text-primary" role="status" data-testid="status-forgot-sent">{forgotMessage}</p>
+            )}
+            {forgotState === 'error' && (
+              <p className="text-xs text-destructive" role="alert" data-testid="error-forgot">{forgotMessage}</p>
+            )}
+          </div>
+        )}
 
         <div>
           <p className="mb-2 text-xs font-semibold">حساب تجريبي جاهز</p>
@@ -134,8 +175,6 @@ export function LoginPage() {
         <Button type="submit" className="w-full" disabled={pending} data-testid="button-submit-login">
           {pending ? 'جارٍ التحقق…' : t('signIn')}
         </Button>
-
-        <SocialAuth mode="signin" />
 
         <p className="text-center text-sm text-muted-foreground" data-testid="text-login-register-prompt">
           ليس لديك حساب؟{' '}
@@ -201,8 +240,6 @@ export function RegisterPage() {
         <Button type="submit" className="w-full" disabled={pending} data-testid="button-submit-register">
           {pending ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
         </Button>
-
-        <SocialAuth mode="signup" />
 
         <p className="text-center text-sm text-muted-foreground" data-testid="text-register-login-prompt">
           لديك حساب بالفعل،{' '}
@@ -310,5 +347,123 @@ export function SeekerCvPage() {
         <Card className="h-fit"><CardHeader><CardTitle className="text-base">حالة الملف</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-primary"><CheckCircle2 className="h-5 w-5" /></div><div><p className="text-sm font-bold">تم التحليل</p><p className="text-xs text-muted-foreground">آخر تحديث: اليوم</p></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />المعلومات الأساسية</div><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />الخبرة والمهارات</div><div className="flex items-center gap-2 text-muted-foreground"><span className="h-4 w-4 rounded-full border border-border" />مراجعة واعتماد</div></div></CardContent></Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+// ─── Password reset ──────────────────────────────────────────────────────
+
+export function ResetPasswordPage() {
+  const [, navigate] = useLocation();
+  const [token] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [state, setState] = useState<'idle' | 'saving' | 'done'>('idle');
+  const [error, setError] = useState('');
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError('');
+    if (password.length < 8) {
+      setError('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('كلمتا المرور غير متطابقتين.');
+      return;
+    }
+    setState('saving');
+    try {
+      await resetPassword(token, password);
+      setState('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر تحديث كلمة المرور. اطلب رابطاً جديداً.');
+      setState('idle');
+    }
+  };
+
+  if (!token) {
+    return (
+      <AuthFrame title="رابط غير صالح" subtitle="رابط إعادة التعيين ناقص أو منتهي." side="أمان حسابك يبدأ من روابط لا تتسرّب.">
+        <p className="text-sm text-muted-foreground" data-testid="error-reset-no-token">
+          افتح الرابط الذي وصلك بالبريد، أو اطلب رابطاً جديداً من صفحة تسجيل الدخول.
+        </p>
+        <Button className="mt-6 w-full" onClick={() => navigate('/login')} data-testid="button-reset-to-login">العودة لتسجيل الدخول</Button>
+      </AuthFrame>
+    );
+  }
+
+  return (
+    <AuthFrame title="تعيين كلمة مرور جديدة" subtitle="اختر كلمة مرور قوية لم تستخدمها من قبل." side="كلمة مرور جديدة، حساب أكثر أماناً.">
+      {state === 'done' ? (
+        <div role="status" data-testid="status-reset-success">
+          <p className="text-sm font-semibold text-primary">تم تحديث كلمة المرور.</p>
+          <Button className="mt-6 w-full" onClick={() => navigate('/login')} data-testid="button-reset-to-login">تسجيل الدخول</Button>
+        </div>
+      ) : (
+        <form onSubmit={submit} noValidate className="space-y-5">
+          <FieldWithError label="كلمة المرور الجديدة" value={password} onChange={setPassword} type="password" placeholder="8 أحرف على الأقل" autoComplete="new-password" error={undefined} testId="input-reset-password" />
+          <FieldWithError label="تأكيد كلمة المرور" value={confirm} onChange={setConfirm} type="password" placeholder="أعد كتابتها" autoComplete="new-password" error={undefined} testId="input-reset-confirm" />
+          {error && <p className="text-xs text-destructive" role="alert" data-testid="error-reset">{error}</p>}
+          <Button type="submit" className="w-full" disabled={state === 'saving'} data-testid="button-submit-reset">
+            {state === 'saving' ? 'جارٍ الحفظ…' : 'تعيين كلمة المرور'}
+          </Button>
+        </form>
+      )}
+    </AuthFrame>
+  );
+}
+
+// ─── Email verification ──────────────────────────────────────────────────
+
+export function VerifyEmailPage() {
+  const [token] = useState(() => new URLSearchParams(window.location.search).get('token') || '');
+  const [state, setState] = useState<'verifying' | 'done' | 'error'>(token ? 'verifying' : 'error');
+  const [error, setError] = useState('');
+  const [resendEmail, setResendEmail] = useState('');
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
+
+  useEffect(() => {
+    if (!token) return;
+    verifyEmail(token)
+      .then(() => setState('done'))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'تعذر تأكيد البريد.');
+        setState('error');
+      });
+  }, [token]);
+
+  const resend = async () => {
+    setResendState('sending');
+    try {
+      await resendVerification(resendEmail);
+      setResendState('sent');
+    } catch {
+      setResendState('idle');
+    }
+  };
+
+  return (
+    <AuthFrame title="تأكيد البريد الإلكتروني" subtitle="لحماية حسابك، نتأكد أن البريد يعود لك." side="بريد مؤكد يعني وصولاً آمناً لكل قراراتك.">
+      {state === 'verifying' && <p className="text-sm text-muted-foreground" role="status" data-testid="status-verifying">جارٍ التحقق…</p>}
+      {state === 'done' && (
+        <div role="status" data-testid="status-verify-success">
+          <p className="text-sm font-semibold text-primary">تم تأكيد بريدك بنجاح.</p>
+          <p className="mt-2 text-xs text-muted-foreground">يمكنك الآن إكمال بيانات الشركة وطلب التحقق.</p>
+        </div>
+      )}
+      {state === 'error' && (
+        <div className="space-y-4">
+          <p className="text-sm text-destructive" role="alert" data-testid="error-verify">{error || 'الرابط ناقص أو منتهي الصلاحية.'}</p>
+          <div className="space-y-2 rounded-xl border border-border bg-secondary/40 p-4">
+            <p className="text-xs text-muted-foreground">أدخل بريدك لإرسال رابط تأكيد جديد.</p>
+            <Input type="email" value={resendEmail} onChange={(event) => setResendEmail(event.target.value)} placeholder="name@example.com" data-testid="input-resend-email" />
+            <Button type="button" onClick={resend} disabled={resendState === 'sending' || !resendEmail.includes('@')} data-testid="button-submit-resend">
+              {resendState === 'sending' ? 'جارٍ الإرسال…' : 'إرسال رابط جديد'}
+            </Button>
+            {resendState === 'sent' && <p className="text-xs font-semibold text-primary" role="status" data-testid="status-resend-sent">إذا كان البريد بانتظر التأكيد فسيصلك رابط جديد.</p>}
+          </div>
+        </div>
+      )}
+    </AuthFrame>
   );
 }

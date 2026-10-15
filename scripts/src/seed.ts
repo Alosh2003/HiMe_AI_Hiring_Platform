@@ -56,6 +56,10 @@ async function seed() {
     passwordHash,
     name: "سلمان القحطاني",
     role: "admin",
+    // Seed accounts predate the email-verification flow; marking them
+    // verified keeps the demo usable without inbox access.
+    emailVerified: true,
+    emailVerifiedAt: new Date(),
   }).onConflictDoNothing().returning();
 
   // Company user
@@ -64,6 +68,8 @@ async function seed() {
     passwordHash,
     name: "مِداد للتقنية",
     role: "company",
+    emailVerified: true,
+    emailVerifiedAt: new Date(),
   }).onConflictDoNothing().returning();
 
   // Seeker user
@@ -72,6 +78,8 @@ async function seed() {
     passwordHash,
     name: "ليان العتيبي",
     role: "seeker",
+    emailVerified: true,
+    emailVerifiedAt: new Date(),
   }).onConflictDoNothing().returning();
 
   console.log("Users created");

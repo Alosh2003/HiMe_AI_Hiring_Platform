@@ -1,0 +1,1936 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HiMe AI Hiring Platform API",
+    "version": "1.0.0",
+    "description": "REST API for HiMe AI, an Arabic (RTL) hiring platform connecting job seekers, companies and platform administrators. Every endpoint accepts and returns JSON (application/json) unless stated otherwise; file uploads use multipart/form-data and file downloads return the stored binary. Authenticated requests must send a Bearer JWT obtained from POST /api/auth/login or POST /api/auth/register in the Authorization header (Authorization: Bearer <token>). Endpoints marked as public require no token. All endpoints are additionally covered by a global rate limit (300 req/min per IP) and stricter limiters on the auth, AI and assessment endpoints, which answer 429 when exceeded."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    { "name": "Meta", "description": "Service index and health checks" },
+    { "name": "Auth", "description": "Registration, login, password reset and email verification" },
+    { "name": "Jobs", "description": "Public job board and company job management" },
+    { "name": "Candidates", "description": "Seeker profiles, CV upload and parsing" },
+    { "name": "Companies", "description": "Company profiles, verification and hiring funnel" },
+    { "name": "Applications", "description": "Job applications and their status" },
+    { "name": "Admin", "description": "Platform administration (admin role only)" },
+    { "name": "AI Matching", "description": "Matching, ranking and recommendations" },
+    { "name": "Assessments", "description": "Public CV assessment" },
+    { "name": "Notifications", "description": "In-app notifications for the signed-in user" },
+    { "name": "Files", "description": "Ownership-checked download of uploaded documents" }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Meta"],
+        "summary": "API index",
+        "description": "Returns the service name, version and the list of mounted route prefixes.",
+        "operationId": "getApiIndex",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "version": { "type": "string" },
+                    "docs": { "type": "string" },
+                    "ui": { "type": "string" },
+                    "endpoints": { "type": "object", "additionalProperties": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": ["Meta"],
+        "summary": "Health check (no auth)",
+        "operationId": "getHealthz",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          }
+        }
+      }
+    },
+    "/api/healthz": {
+      "get": {
+        "tags": ["Meta"],
+        "summary": "Health check under the API prefix (no auth)",
+        "operationId": "getApiHealthz",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in with email and password",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JWT and the signed-in user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a seeker or company account",
+        "operationId": "register",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created; a seeker also gets a seeded candidate profile (onboarding: true)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get the current user",
+        "operationId": "getCurrentUser",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Auth"],
+        "summary": "Update the current user's name, phone or avatar",
+        "operationId": "updateCurrentUser",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/auth/forgot-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Start a password reset",
+        "description": "Always answers 200 whether or not the email exists, so the endpoint cannot be used to enumerate accounts.",
+        "operationId": "forgotPassword",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmailRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledgement (message is delivered by email/outbox)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Complete a password reset",
+        "operationId": "resetPassword",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResetPasswordRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password updated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/verify-email": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Verify an email address with a token",
+        "operationId": "verifyEmail",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TokenRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/auth/resend-verification": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Re-send the email verification link",
+        "operationId": "resendVerification",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmailRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledgement (same answer whether or not the account exists)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "List jobs on the public board",
+        "description": "Only active jobs from verified companies are returned. Results are paginated.",
+        "operationId": "listJobs",
+        "security": [],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 200 }, "description": "Matches job title or description" },
+          { "name": "industry", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "contract", "in": "query", "schema": { "type": "string", "enum": ["full-time", "part-time", "contract", "internship"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "active", "paused", "closed"], "default": "active" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs with company and skills attached",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobList" } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Jobs"],
+        "summary": "Create a job (verified companies only)",
+        "operationId": "createJob",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/JobCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created job",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": {
+            "description": "Wrong role, or the company profile is not verified yet",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/jobs/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Get a job by id",
+        "description": "Public for verified companies. A Bearer token may be supplied optionally so the owning company or an admin can preview a job that is not yet verified; everyone else receives 404.",
+        "operationId": "getJob",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Job with company and skills attached",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Jobs"],
+        "summary": "Update a job (owner company or admin)",
+        "operationId": "updateJob",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/JobUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated job",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["Jobs"],
+        "summary": "Delete a job (owner company or admin)",
+        "operationId": "deleteJob",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/candidates/profile": {
+      "get": {
+        "tags": ["Candidates"],
+        "summary": "Get the seeker's profile",
+        "operationId": "getCandidateProfile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Profile with skills, experiences, education, projects and certifications",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CandidateProfile" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Candidates"],
+        "summary": "Update the seeker's profile",
+        "description": "Sending skills replaces the whole skill list.",
+        "operationId": "updateCandidateProfile",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CandidateProfileUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated candidate row",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CandidateProfile" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/candidates/experience": {
+      "post": {
+        "tags": ["Candidates"],
+        "summary": "Add a work experience entry",
+        "operationId": "createExperience",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ExperienceCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created experience",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Experience" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/candidates/education": {
+      "post": {
+        "tags": ["Candidates"],
+        "summary": "Add an education entry",
+        "operationId": "createEducation",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EducationCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created education entry",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Education" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/candidates/cv": {
+      "post": {
+        "tags": ["Candidates"],
+        "summary": "Upload and parse a CV",
+        "description": "Accepts either multipart/form-data with a `file` part (PDF, DOCX, DOC, TXT, MD; max 10MB) that is stored and parsed, or a JSON body describing an already uploaded file. Profile completion is recalculated on success.",
+        "operationId": "uploadCv",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": { "type": "string", "format": "binary", "description": "CV document" }
+                },
+                "required": ["file"]
+              }
+            },
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CvUploadJsonRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated candidate with parsing status (`parsed`) and, for uploads, the stored `file`",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CandidateProfile" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/companies": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "List companies (most recent 100)",
+        "operationId": "listCompanies",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Companies",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Company" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Get a company with its jobs",
+        "operationId": "getCompany",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Company and jobs",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompanyWithJobs" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/{id}/jobs": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["Companies"],
+        "summary": "List a company's jobs",
+        "operationId": "getCompanyJobs",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Jobs with resolved skills",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/me/jobs": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "List the signed-in company's own jobs",
+        "operationId": "getMyCompanyJobs",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Jobs with resolved skills",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/me/profile": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Get the signed-in company's profile",
+        "operationId": "getMyCompanyProfile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Company profile",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/me/funnel": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Hiring funnel statistics for the signed-in company",
+        "description": "Per-job and total application counts by status plus the average match score.",
+        "operationId": "getCompanyFunnel",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Funnel totals per job and overall",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Funnel" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/profile": {
+      "post": {
+        "tags": ["Companies"],
+        "summary": "Create (or update) the signed-in company's profile",
+        "description": "Creates the profile on first use (201) and updates it afterwards (200). Editing a rejected profile moves verificationStatus back to draft.",
+        "operationId": "createCompanyProfile",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CompanyProfileRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Existing profile updated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "201": {
+            "description": "Profile created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "patch": {
+        "tags": ["Companies"],
+        "summary": "Partially update the signed-in company's profile",
+        "operationId": "updateCompanyProfile",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CompanyProfilePatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companies/verification/request": {
+      "post": {
+        "tags": ["Companies"],
+        "summary": "Request admin verification of the company",
+        "description": "Requires a verified email address and a complete profile (name, industry, location, description of at least 20 characters).",
+        "operationId": "requestCompanyVerification",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Verification requested; status is now pending",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "400": {
+            "description": "Company profile missing or required fields incomplete (lists `missing`)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": {
+            "description": "Email address not verified yet",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/applications": {
+      "post": {
+        "tags": ["Applications"],
+        "summary": "Apply to a job (seeker)",
+        "operationId": "createApplication",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ApplyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Application created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Application" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": {
+            "description": "Job not found, or the hiring company is not verified (not publicly listed)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/applications/my": {
+      "get": {
+        "tags": ["Applications"],
+        "summary": "List the seeker's own applications",
+        "operationId": "listMyApplications",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Applications with job and company attached",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationWithJob" } }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/applications/job/{jobId}": {
+      "parameters": [
+        { "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["Applications"],
+        "summary": "List applications for a job (owning company)",
+        "description": "Results are enriched with the candidate, match score, breakdown and AI explanation, sorted by match score descending.",
+        "operationId": "listJobApplications",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Applications with candidate and match data",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationWithCandidate" } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/applications/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "patch": {
+        "tags": ["Applications"],
+        "summary": "Update an application's status (owning company)",
+        "description": "Changing the status creates an in-app notification for the applicant.",
+        "operationId": "updateApplicationStatus",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ApplicationStatusRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated application",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Application" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/applications/matches/{jobId}": {
+      "parameters": [
+        { "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["Applications"],
+        "summary": "Stored match results for a job (company role)",
+        "operationId": "getJobMatches",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Match results with candidate attached, highest score first",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MatchResultWithCandidate" } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/stats": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Platform counters",
+        "operationId": "getAdminStats",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Counts of users, companies, jobs and applications",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminStats" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/companies": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List companies for the verification queue",
+        "operationId": "adminListCompanies",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "pending", "verified", "rejected"] } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Companies with their contact user, paginated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminCompanyPage" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/companies/{id}/verify": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Approve a pending company",
+        "operationId": "adminVerifyCompany",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Company verified; the owner is notified in-app and by email",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/admin/companies/{id}/reject": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Reject a pending company with a reason",
+        "operationId": "adminRejectCompany",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RejectionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Company rejected; the owner is notified",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/admin/companies/{id}/suspend": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Suspend a company",
+        "description": "Sets verificationStatus to rejected with a fixed suspension note; works regardless of the current status.",
+        "operationId": "adminSuspendCompany",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Company suspended; the owner is notified",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Company" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/jobs/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "delete": {
+        "tags": ["Admin"],
+        "summary": "Delete any job (moderation)",
+        "operationId": "adminDeleteJob",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/admin/applications": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List recent applications across the platform",
+        "operationId": "adminListApplications",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Applications with job, company, candidate and user, paginated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminApplicationPage" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/password": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Admin-initiated password reset",
+        "description": "Sets a new password for the user, writes an audit entry and notifies the user; the new password is returned to the admin once.",
+        "operationId": "adminResetUserPassword",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AdminPasswordRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password updated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/ai/match": {
+      "post": {
+        "tags": ["AI Matching"],
+        "summary": "Score the current seeker against a job",
+        "description": "Computes the match (skills, experience, education, location) and persists a match result. Allowed for company and seeker roles; subject to the AI rate limit (20/min).",
+        "operationId": "matchJob",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Match score, breakdown and explanation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MatchResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/ai/rank/{jobId}": {
+      "parameters": [
+        { "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "tags": ["AI Matching"],
+        "summary": "Rank all candidates against a job (owning company)",
+        "operationId": "rankCandidates",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Candidates with their match result, best first",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/CandidateRanking" } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/ai/recommendations": {
+      "get": {
+        "tags": ["AI Matching"],
+        "summary": "Top job recommendations for the seeker",
+        "description": "Scores every active job against the seeker's profile and returns the best 10.",
+        "operationId": "getRecommendations",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Recommended jobs with match results",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Recommendation" } }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/assess": {
+      "post": {
+        "tags": ["Assessments"],
+        "summary": "Assess a CV against a target role (public)",
+        "description": "No account required. Accepts a target role plus either an uploaded document (multipart) or pasted CV text (at least 50 characters). A Bearer token, when present, switches the request to the AI rate limit instead of the anonymous assessment limit (10/hour).",
+        "operationId": "assessCv",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": { "type": "string", "minLength": 2, "maxLength": 300 },
+                  "file": { "type": "string", "format": "binary", "description": "CV document (PDF, DOCX, DOC, TXT, MD)" }
+                },
+                "required": ["role"]
+              }
+            },
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AssessRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Assessment with scores, strengths, gaps and recommendations",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CvAssessment" } } }
+          },
+          "400": {
+            "description": "Missing/invalid role, unreadable file or not enough CV text",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
+          "502": {
+            "description": "The assessment (LLM) service is unavailable",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "List the current user's notifications",
+        "operationId": "listNotifications",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Newest 50 notifications plus the unread count",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationList" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/notifications/read-all": {
+      "post": {
+        "tags": ["Notifications"],
+        "summary": "Mark every notification of the current user as read",
+        "operationId": "markAllNotificationsRead",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "All notifications marked as read" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "patch": {
+        "tags": ["Notifications"],
+        "summary": "Mark one notification as read (owner only)",
+        "operationId": "markNotificationRead",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Updated notification",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Notification" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/files/{name}": {
+      "parameters": [
+        { "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Stored file name (bare name, no directory components)" }
+      ],
+      "get": {
+        "tags": ["Files"],
+        "summary": "Download an uploaded document (owner or admin)",
+        "description": "Serves the stored file with its canonical Content-Type and X-Content-Type-Options: nosniff. Only the seeker whose CV it is, or an admin, may fetch it; everyone else gets 404 so the endpoint cannot be used to probe for other people's documents.",
+        "operationId": "getUploadedFile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "File contents",
+            "content": {
+              "application/pdf": { "schema": { "type": "string", "format": "binary" } },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { "schema": { "type": "string", "format": "binary" } },
+              "application/msword": { "schema": { "type": "string", "format": "binary" } },
+              "text/plain": { "schema": { "type": "string" } },
+              "text/markdown": { "schema": { "type": "string" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT returned by POST /api/auth/login or POST /api/auth/register, sent as `Authorization: Bearer <token>`; valid for 7 days."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Validation error",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid or expired token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Forbidden": {
+        "description": "Authenticated but not allowed (wrong role or not the owner)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NotFound": {
+        "description": "Not found (also returned instead of 403 where revealing existence would leak data)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Conflict": {
+        "description": "Conflict (duplicate email, duplicate application, wrong state)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded; includes `retryAfter` in seconds",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "ServerError": {
+        "description": "Unexpected server error",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Uniform error envelope",
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "details": {
+            "type": "array",
+            "items": { "type": "object", "additionalProperties": true },
+            "description": "Zod issue list, present on validation failures"
+          },
+          "retryAfter": { "type": "integer", "description": "Seconds until the rate limit resets (429 only)" }
+        },
+        "required": ["error"]
+      },
+      "OkResponse": {
+        "type": "object",
+        "properties": { "ok": { "type": "boolean" } },
+        "required": ["ok"]
+      },
+      "MessageResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "message": { "type": "string" }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "examples": ["ok"] },
+          "timestamp": { "type": "string", "format": "date-time" }
+        },
+        "required": ["status"]
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "total": { "type": "integer" },
+          "totalPages": { "type": "integer" },
+          "hasNext": { "type": "boolean" }
+        },
+        "required": ["page", "limit", "total", "totalPages"]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["seeker", "company", "admin"] },
+          "phone": { "type": "string", "nullable": true },
+          "avatarUrl": { "type": "string", "nullable": true },
+          "emailVerified": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "email", "name", "role"]
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string", "description": "JWT, valid 7 days" },
+          "onboarding": { "type": "boolean", "description": "Register only: profile seeded and still needs completing" },
+          "user": { "$ref": "#/components/schemas/User" }
+        },
+        "required": ["token", "user"]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 }
+        },
+        "required": ["email", "password"]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8, "maxLength": 100 },
+          "role": { "type": "string", "enum": ["seeker", "company"], "default": "seeker" },
+          "phone": { "type": "string" }
+        },
+        "required": ["name", "email", "password"]
+      },
+      "UserUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+          "phone": { "type": "string" },
+          "avatarUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "EmailRequest": {
+        "type": "object",
+        "properties": { "email": { "type": "string", "format": "email" } },
+        "required": ["email"]
+      },
+      "ResetPasswordRequest": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string", "minLength": 10 },
+          "password": { "type": "string", "minLength": 8, "maxLength": 100 }
+        },
+        "required": ["token", "password"]
+      },
+      "TokenRequest": {
+        "type": "object",
+        "properties": { "token": { "type": "string", "minLength": 10 } },
+        "required": ["token"]
+      },
+      "Skill": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "category": { "type": "string", "enum": ["professional", "technical", "soft", "language"] },
+          "proficiency": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "yearsExperience": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["name", "category"]
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "companyId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "industry": { "type": "string" },
+          "location": { "type": "string" },
+          "contractType": { "type": "string", "enum": ["full-time", "part-time", "contract", "internship"] },
+          "experienceLevel": { "type": "string", "enum": ["entry", "mid", "senior", "lead"] },
+          "salaryMin": { "type": "integer", "nullable": true },
+          "salaryMax": { "type": "integer", "nullable": true },
+          "deadline": { "type": "string", "format": "date-time", "nullable": true },
+          "status": { "type": "string", "enum": ["draft", "active", "paused", "closed"] },
+          "applicantsCount": { "type": "integer" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "company": { "$ref": "#/components/schemas/Company" },
+          "requiredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/Skill" } },
+          "preferredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/Skill" } }
+        },
+        "required": ["id", "companyId", "title", "description", "status"]
+      },
+      "JobList": {
+        "type": "object",
+        "properties": {
+          "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        },
+        "required": ["jobs", "pagination"]
+      },
+      "JobCreateRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+          "description": { "type": "string", "minLength": 10 },
+          "industry": { "type": "string", "minLength": 1 },
+          "location": { "type": "string", "minLength": 1 },
+          "contractType": { "type": "string", "enum": ["full-time", "part-time", "contract", "internship"], "default": "full-time" },
+          "experienceLevel": { "type": "string", "enum": ["entry", "mid", "senior", "lead"], "default": "mid" },
+          "salaryMin": { "type": "integer", "minimum": 1 },
+          "salaryMax": { "type": "integer", "minimum": 1 },
+          "deadline": { "type": "string", "format": "date-time" },
+          "requiredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/SkillInput" }, "default": [] },
+          "preferredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/SkillInput" }, "default": [] }
+        },
+        "required": ["title", "description", "industry", "location"]
+      },
+      "JobUpdateRequest": {
+        "type": "object",
+        "description": "Any subset of JobCreateRequest; all fields optional",
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+          "description": { "type": "string", "minLength": 10 },
+          "industry": { "type": "string" },
+          "location": { "type": "string" },
+          "contractType": { "type": "string", "enum": ["full-time", "part-time", "contract", "internship"] },
+          "experienceLevel": { "type": "string", "enum": ["entry", "mid", "senior", "lead"] },
+          "salaryMin": { "type": "integer", "minimum": 1 },
+          "salaryMax": { "type": "integer", "minimum": 1 },
+          "deadline": { "type": "string", "format": "date-time" },
+          "requiredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/SkillInput" } },
+          "preferredSkills": { "type": "array", "items": { "$ref": "#/components/schemas/SkillInput" } }
+        }
+      },
+      "SkillInput": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "category": { "type": "string" }
+        },
+        "required": ["name"]
+      },
+      "Company": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "industry": { "type": "string", "nullable": true },
+          "location": { "type": "string", "nullable": true },
+          "website": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "employeeCount": { "type": "integer", "nullable": true },
+          "foundedYear": { "type": "integer", "nullable": true },
+          "verified": { "type": "boolean" },
+          "verificationStatus": { "type": "string", "enum": ["draft", "pending", "verified", "rejected"] },
+          "verificationNote": { "type": "string", "nullable": true },
+          "verificationRequestedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "verifiedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "userId", "name"]
+      },
+      "CompanyWithJobs": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Company" },
+          {
+            "type": "object",
+            "properties": {
+              "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } }
+            }
+          }
+        ]
+      },
+      "CompanyProfileRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 2, "maxLength": 200 },
+          "industry": { "type": "string", "minLength": 1 },
+          "location": { "type": "string", "minLength": 1 },
+          "website": { "type": "string", "format": "uri" },
+          "description": { "type": "string", "maxLength": 2000 },
+          "employeeCount": { "type": "integer", "minimum": 1 },
+          "foundedYear": { "type": "integer", "minimum": 1800, "maximum": 2030 }
+        },
+        "required": ["name", "industry", "location"]
+      },
+      "CompanyProfilePatchRequest": {
+        "type": "object",
+        "description": "Same fields as CompanyProfileRequest, all optional",
+        "properties": {
+          "name": { "type": "string", "minLength": 2, "maxLength": 200 },
+          "industry": { "type": "string" },
+          "location": { "type": "string" },
+          "website": { "type": "string", "format": "uri" },
+          "description": { "type": "string", "maxLength": 2000 },
+          "employeeCount": { "type": "integer", "minimum": 1 },
+          "foundedYear": { "type": "integer", "minimum": 1800, "maximum": 2030 }
+        }
+      },
+      "Funnel": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FunnelEntry" }
+          },
+          "totals": { "$ref": "#/components/schemas/FunnelEntry" }
+        },
+        "required": ["jobs", "totals"]
+      },
+      "FunnelEntry": {
+        "type": "object",
+        "properties": {
+          "jobId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "active", "paused", "closed"] },
+          "total": { "type": "integer" },
+          "applied": { "type": "integer" },
+          "reviewing": { "type": "integer" },
+          "shortlisted": { "type": "integer" },
+          "interview": { "type": "integer" },
+          "rejected": { "type": "integer" },
+          "accepted": { "type": "integer" },
+          "avgMatch": { "type": "integer", "nullable": true }
+        }
+      },
+      "CandidateProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "headline": { "type": "string", "nullable": true },
+          "summary": { "type": "string", "nullable": true },
+          "location": { "type": "string", "nullable": true },
+          "yearsExperience": { "type": "integer", "nullable": true },
+          "completion": { "type": "integer", "description": "Profile completion percentage" },
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "industries": { "type": "array", "items": { "type": "string" } },
+              "contractTypes": { "type": "array", "items": { "type": "string" } },
+              "remote": { "type": "boolean" },
+              "salaryMin": { "type": "integer" }
+            }
+          },
+          "cvUrl": { "type": "string", "nullable": true },
+          "cvParsedData": { "type": "object", "additionalProperties": true, "nullable": true },
+          "skills": { "type": "array", "items": { "$ref": "#/components/schemas/Skill" } },
+          "experiences": { "type": "array", "items": { "$ref": "#/components/schemas/Experience" } },
+          "education": { "type": "array", "items": { "$ref": "#/components/schemas/Education" } },
+          "projects": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "certifications": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "parsed": { "type": "boolean", "description": "CV upload only: LLM parsing produced data" },
+          "parseError": { "type": "string", "description": "CV upload only: present when LLM parsing failed" },
+          "file": {
+            "type": "object",
+            "description": "CV upload only: the stored file",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "url": { "type": "string" },
+              "size": { "type": "integer" }
+            }
+          }
+        },
+        "required": ["id", "userId"]
+      },
+      "CandidateProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "headline": { "type": "string", "maxLength": 200 },
+          "summary": { "type": "string", "maxLength": 2000 },
+          "location": { "type": "string", "maxLength": 200 },
+          "yearsExperience": { "type": "integer", "minimum": 0, "maximum": 50 },
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "industries": { "type": "array", "items": { "type": "string" } },
+              "contractTypes": { "type": "array", "items": { "type": "string" } },
+              "remote": { "type": "boolean" },
+              "salaryMin": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "skills": {
+            "type": "array",
+            "description": "Replaces the entire skill list",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "category": { "type": "string", "default": "professional" },
+                "proficiency": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 },
+                "yearsExperience": { "type": "integer", "minimum": 0 }
+              },
+              "required": ["name"]
+            }
+          }
+        }
+      },
+      "Experience": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "role": { "type": "string" },
+          "company": { "type": "string" },
+          "location": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string", "nullable": true },
+          "current": { "type": "boolean" }
+        },
+        "required": ["role", "company", "startDate"]
+      },
+      "ExperienceCreateRequest": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string", "minLength": 2 },
+          "company": { "type": "string", "minLength": 2 },
+          "location": { "type": "string" },
+          "description": { "type": "string" },
+          "startDate": { "type": "string", "minLength": 1 },
+          "endDate": { "type": "string" },
+          "current": { "type": "boolean", "default": false }
+        },
+        "required": ["role", "company", "startDate"]
+      },
+      "Education": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "degree": { "type": "string" },
+          "field": { "type": "string", "nullable": true },
+          "institution": { "type": "string" },
+          "year": { "type": "integer" }
+        },
+        "required": ["degree", "institution", "year"]
+      },
+      "EducationCreateRequest": {
+        "type": "object",
+        "properties": {
+          "degree": { "type": "string", "minLength": 2 },
+          "field": { "type": "string" },
+          "institution": { "type": "string", "minLength": 2 },
+          "year": { "type": "integer", "minimum": 1950, "maximum": 2030 }
+        },
+        "required": ["degree", "institution", "year"]
+      },
+      "CvUploadJsonRequest": {
+        "type": "object",
+        "description": "JSON alternative to the multipart upload",
+        "properties": {
+          "fileName": { "type": "string", "minLength": 1 },
+          "fileSize": { "type": "integer", "minimum": 1 },
+          "fileUrl": { "type": "string", "format": "uri" },
+          "cvText": { "type": "string", "description": "Raw CV text, parsed by the LLM when parsedData is absent" },
+          "parsedData": {
+            "type": "object",
+            "properties": {
+              "headline": { "type": "string" },
+              "summary": { "type": "string" },
+              "skills": { "type": "array", "items": { "type": "string" } },
+              "experiences": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            }
+          }
+        },
+        "required": ["fileName", "fileSize", "fileUrl"]
+      },
+      "Application": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "jobId": { "type": "string", "format": "uuid" },
+          "candidateId": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["applied", "reviewing", "shortlisted", "interview", "rejected", "accepted"] },
+          "matchScore": { "type": "number", "nullable": true },
+          "appliedAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "jobId", "candidateId", "status"]
+      },
+      "ApplicationWithJob": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Application" },
+          {
+            "type": "object",
+            "properties": {
+              "job": {
+                "allOf": [{ "$ref": "#/components/schemas/Job" }],
+                "nullable": true
+              }
+            }
+          }
+        ]
+      },
+      "ApplicationWithCandidate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Application" },
+          {
+            "type": "object",
+            "properties": {
+              "candidate": {
+                "allOf": [{ "$ref": "#/components/schemas/CandidateProfile" }],
+                "nullable": true
+              },
+              "matchBreakdown": { "type": "object", "additionalProperties": true },
+              "aiExplanation": { "type": "string", "nullable": true }
+            }
+          }
+        ]
+      },
+      "ApplyRequest": {
+        "type": "object",
+        "properties": { "jobId": { "type": "string", "format": "uuid" } },
+        "required": ["jobId"]
+      },
+      "ApplicationStatusRequest": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["applied", "reviewing", "shortlisted", "interview", "rejected", "accepted"] }
+        },
+        "required": ["status"]
+      },
+      "AdminStats": {
+        "type": "object",
+        "properties": {
+          "candidates": { "type": "integer" },
+          "companies": { "type": "integer" },
+          "jobs": { "type": "integer" },
+          "applications": { "type": "integer" }
+        },
+        "required": ["candidates", "companies", "jobs", "applications"]
+      },
+      "AdminCompanyPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/Company" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "contact": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "name": { "type": "string" },
+                        "email": { "type": "string", "format": "email" }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        },
+        "required": ["items", "pagination"]
+      },
+      "AdminApplicationPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ApplicationWithJob" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "candidate": {
+                      "allOf": [{ "$ref": "#/components/schemas/CandidateProfile" }],
+                      "nullable": true
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        },
+        "required": ["items", "pagination"]
+      },
+      "RejectionRequest": {
+        "type": "object",
+        "properties": { "reason": { "type": "string", "minLength": 5, "maxLength": 1000 } },
+        "required": ["reason"]
+      },
+      "AdminPasswordRequest": {
+        "type": "object",
+        "properties": { "password": { "type": "string", "minLength": 8, "maxLength": 100 } },
+        "required": ["password"]
+      },
+      "MatchRequest": {
+        "type": "object",
+        "properties": { "jobId": { "type": "string", "format": "uuid" } },
+        "required": ["jobId"]
+      },
+      "MatchResult": {
+        "type": "object",
+        "properties": {
+          "overallScore": { "type": "number", "minimum": 0, "maximum": 100 },
+          "breakdown": {
+            "type": "object",
+            "description": "Weighted sub-scores (skills, experience, education, location, ...)",
+            "additionalProperties": true
+          },
+          "explanation": { "type": "string", "description": "LLM explanation when available, otherwise rule-based" }
+        },
+        "required": ["overallScore", "breakdown", "explanation"]
+      },
+      "MatchResultWithCandidate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/MatchResult" },
+          {
+            "type": "object",
+            "properties": {
+              "candidate": {
+                "allOf": [{ "$ref": "#/components/schemas/CandidateProfile" }],
+                "nullable": true
+              },
+              "jobId": { "type": "string", "format": "uuid" },
+              "candidateId": { "type": "string", "format": "uuid" }
+            }
+          }
+        ]
+      },
+      "CandidateRanking": {
+        "type": "object",
+        "properties": {
+          "candidate": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "headline": { "type": "string", "nullable": true },
+              "location": { "type": "string", "nullable": true }
+            }
+          },
+          "match": { "$ref": "#/components/schemas/MatchResult" }
+        },
+        "required": ["candidate", "match"]
+      },
+      "Recommendation": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "title": { "type": "string" },
+              "company": { "type": "string" },
+              "location": { "type": "string" },
+              "match": { "$ref": "#/components/schemas/MatchResult" }
+            }
+          }
+        },
+        "required": ["job"]
+      },
+      "AssessRequest": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string", "minLength": 2, "maxLength": 300 },
+          "cvText": { "type": "string", "maxLength": 50000, "description": "Pasted CV text; at least 50 characters after trimming" }
+        },
+        "required": ["role"]
+      },
+      "CvAssessment": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string" },
+          "overallScore": { "type": "number" },
+          "breakdown": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "object",
+                "properties": {
+                  "score": { "type": "number" },
+                  "matched": { "type": "array", "items": { "type": "string" } },
+                  "missing": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "experience": {
+                "type": "object",
+                "properties": {
+                  "score": { "type": "number" },
+                  "years": { "type": "number" },
+                  "relevant": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "education": {
+                "type": "object",
+                "properties": {
+                  "score": { "type": "number" },
+                  "notes": { "type": "string" }
+                }
+              },
+              "presentation": {
+                "type": "object",
+                "properties": {
+                  "score": { "type": "number" },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          },
+          "strengths": { "type": "array", "items": { "type": "string" } },
+          "gaps": { "type": "array", "items": { "type": "string" } },
+          "recommendations": { "type": "array", "items": { "type": "string" } },
+          "truncated": { "type": "boolean", "description": "CV text was longer than 40,000 characters and was truncated" }
+        },
+        "required": ["role", "overallScore", "breakdown"]
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "examples": ["application_status", "company_verified", "password_reset"] },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "link": { "type": "string", "nullable": true },
+          "read": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "userId", "type", "title", "read"]
+      },
+      "NotificationList": {
+        "type": "object",
+        "properties": {
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } },
+          "unreadCount": { "type": "integer" }
+        },
+        "required": ["notifications", "unreadCount"]
+      }
+    }
+  }
+}

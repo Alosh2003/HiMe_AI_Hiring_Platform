@@ -8,11 +8,12 @@ import { LanguageProvider } from '@/i18n';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/contexts/auth-context';
 import { ProtectedRoute, GuestRoute } from '@/components/protected-route';
+import { DemoModeBanner } from '@/components/demo-mode-banner';
 import { AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
   CompanyJobsPage, HomePage, JobsPage, NewJobPage, RecommendationsPage
 } from '@/pages/Pages';
 import { AssessPage } from '@/pages/AssessPage';
-import { JobDetailsPage, LoginPage, RegisterPage, SeekerCvPage } from '@/pages/TrustFlows';
+import { JobDetailsPage, LoginPage, RegisterPage, ResetPasswordPage, SeekerCvPage, VerifyEmailPage } from '@/pages/TrustFlows';
 import {
   AdminDashboardPage, AdminProfilePage, CandidateDashboardPage,
   CandidateProfilePage, CompanyDashboardPage, CompanyProfilePage
@@ -36,6 +37,8 @@ function Router() {
         <Route path="/jobs/:id" component={JobDetailsPage} />
         <Route path="/login"><GuestRoute><LoginPage /></GuestRoute></Route>
         <Route path="/register"><GuestRoute><RegisterPage /></GuestRoute></Route>
+        <Route path="/reset-password" component={ResetPasswordPage} />
+        <Route path="/verify-email" component={VerifyEmailPage} />
         <Route path="/about" component={AboutPage} />
         <Route path="/assess" component={AssessPage} />
 
@@ -111,6 +114,7 @@ function App() {
         <TooltipProvider>
           <LanguageProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+              <DemoModeBanner />
               <Router />
             </WouterRouter>
           </LanguageProvider>

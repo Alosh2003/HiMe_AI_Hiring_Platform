@@ -367,37 +367,114 @@ describe('auth page navigation', () => {
     expect(screen.getByTestId('text-register-login-prompt')).toHaveTextContent('لديك حساب بالفعل');
   });
 
-  it('shows Google, GitHub and Facebook buttons on login', async () => {
+  it('hides social sign-in entirely until OAuth is actually implemented', async () => {
     localStorage.removeItem('hime_ai_token');
     localStorage.removeItem('hime_ai_user');
     renderAt('/login');
 
-    expect(await screen.findByTestId('button-social-google')).toBeInTheDocument();
-    expect(screen.getByTestId('button-social-github')).toBeInTheDocument();
-    expect(screen.getByTestId('button-social-facebook')).toBeInTheDocument();
+    await screen.findByTestId('button-submit-login');
+    // Decision 2.5: half-finished auth is worse than none. The buttons are
+    // gone rather than pretending to work.
+    expect(screen.queryByTestId('button-social-google')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-social-github')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-social-facebook')).not.toBeInTheDocument();
   });
 
-  it('shows Google, GitHub and Facebook buttons on register', async () => {
+  it('hides social sign-up on the register page too', async () => {
     localStorage.removeItem('hime_ai_token');
     localStorage.removeItem('hime_ai_user');
     renderAt('/register');
 
-    expect(await screen.findByTestId('button-social-google')).toBeInTheDocument();
-    expect(screen.getByTestId('button-social-github')).toBeInTheDocument();
-    expect(screen.getByTestId('button-social-facebook')).toBeInTheDocument();
+    await screen.findByTestId('button-submit-register');
+    expect(screen.queryByTestId('button-social-google')).not.toBeInTheDocument();
   });
 
-  it('does not silently fake a session when a social button is pressed', async () => {
+  it('requests a password reset from the login page', async () => {
     localStorage.removeItem('hime_ai_token');
     localStorage.removeItem('hime_ai_user');
     renderAt('/login');
 
-    fireEvent.click(await screen.findByTestId('button-social-google'));
+    fireEvent.click(await screen.findByTestId('button-forgot-password'));
+    const input = await screen.findByTestId('input-forgot-email');
+    fireEvent.change(input, { target: { value: 'seeker@hime.ai' } });
+    fireEvent.click(screen.getByTestId('button-submit-forgot'));
 
-    // It explains the provider is not wired up, and stays signed out.
-    expect(await screen.findByTestId('status-social-unavailable')).toBeInTheDocument();
-    expect(localStorage.getItem('hime_ai_token')).toBeNull();
-    expect(window.location.pathname).toBe('/login');
+    expect(await screen.findByTestId('status-forgot-sent', {}, { timeout: 3000 })).toHaveTextContent('رابط');
+  });
+});
+
+// ─── Notifications ─────────────────────────────────────────────────────────
+
+describe('notifications', () => {
+  it('shows the unread dot and lists notifications in the bell', async () => {
+    setRole('seeker');
+    renderAt('/seeker/dashboard');
+
+    expect(await screen.findByTestId('badge-notifications-unread', {}, { timeout: 3000 })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-role-notifications'));
+
+    const panel = await screen.findByTestId('panel-notifications');
+    expect(panel).toBeInTheDocument();
+    expect(screen.getByText(/القائمة المختصرة/)).toBeInTheDocument();
+  });
+
+  it('marks all notifications as read without breaking the page', async () => {
+    setRole('seeker');
+    renderAt('/seeker/applications');
+
+    fireEvent.click(await screen.findByTestId('button-role-notifications', {}, { timeout: 3000 }));
+    fireEvent.click(await screen.findByTestId('button-notifications-read-all'));
+    expect(await screen.findByTestId('panel-notifications')).toBeInTheDocument();
+  });
+});
+
+// ─── Password reset & email verification pages ─────────────────────────────
+
+describe('password reset page', () => {
+  it('confirms a successful reset', async () => {
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/reset-password?token=abc123def456');
+
+    fireEvent.change(await screen.findByTestId('input-reset-password'), { target: { value: 'newpassword123' } });
+    fireEvent.change(screen.getByTestId('input-reset-confirm'), { target: { value: 'newpassword123' } });
+    fireEvent.click(screen.getByTestId('button-submit-reset'));
+
+    expect(await screen.findByTestId('status-reset-success', {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it('explains a missing token instead of hanging', async () => {
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/reset-password');
+
+    expect(await screen.findByTestId('error-reset-no-token')).toBeInTheDocument();
+  });
+
+  it('rejects mismatched passwords client-side', async () => {
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/reset-password?token=abc123def456');
+
+    fireEvent.change(await screen.findByTestId('input-reset-password'), { target: { value: 'newpassword123' } });
+    fireEvent.change(screen.getByTestId('input-reset-confirm'), { target: { value: 'differentpass1' } });
+    fireEvent.click(screen.getByTestId('button-submit-reset'));
+
+    expect(await screen.findByTestId('error-reset')).toHaveTextContent('غير متطابقتين');
+  });
+});
+
+describe('email verification page', () => {
+  it('confirms a valid token', async () => {
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/verify-email?token=abc123def456');
+
+    expect(await screen.findByTestId('status-verify-success', {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it('offers a resend form when the link is missing or invalid', async () => {
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/verify-email');
+
+    expect(await screen.findByTestId('error-verify')).toBeInTheDocument();
+    expect(screen.getByTestId('input-resend-email')).toBeInTheDocument();
   });
 });
 

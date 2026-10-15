@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, BriefcaseBusiness, Building2, FileText, LayoutDashboard, LogOut, Menu, Plus, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
+import { BriefcaseBusiness, Building2, FileText, LayoutDashboard, LogOut, Menu, Plus, Settings, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
 import { LanguageSwitch, Logo } from '@/components/app-kit';
+import { NotificationBell } from '@/components/notification-bell';
 import { useLanguage } from '@/i18n';
 import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
@@ -100,7 +101,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
         <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur md:px-8">
           <button className="rounded-lg p-2 md:hidden" onClick={() => setMobileOpen(true)} aria-label="فتح القائمة" data-testid="button-open-sidebar"><Menu /></button>
           <div className="hidden md:block"><p className="text-xs text-muted-foreground">{content.greeting}</p><p className="font-semibold">{role === 'admin' ? 'صباح الخير، سلمان' : role === 'company' ? 'صباح الخير، فريق مِداد' : 'صباح الخير، ليان'}</p></div>
-          <div className="ms-auto flex items-center gap-3"><LanguageSwitch /><button className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="الإشعارات" data-testid="button-role-notifications"><Bell className="h-5 w-5" /><span className="absolute end-1 top-1 h-2 w-2 rounded-full bg-accent" /></button><div className="hidden h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary sm:grid">{role === 'admin' ? 'سق' : role === 'company' ? 'مت' : 'لع'}</div></div>
+          <div className="ms-auto flex items-center gap-3"><LanguageSwitch /><NotificationBell /><div className="hidden h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary sm:grid">{role === 'admin' ? 'سق' : role === 'company' ? 'مت' : 'لع'}</div></div>
         </header>
         <main className="mx-auto max-w-[1500px] p-4 md:p-8">{children}</main>
       </div>
