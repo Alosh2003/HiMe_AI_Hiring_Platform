@@ -289,6 +289,28 @@ router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("
 router.get("/matches/:jobId", authMiddleware, requireRole("company"), validateUuidParam("jobId"), async (req: AuthRequest, res) => {
   const jobId = req.params.jobId as string;
 
+  // Same ownership rule as /job/:jobId: rankings include candidate rows, so
+  // another company must not be able to read them with a guessed UUID.
+  const job = await db.query.jobsTable.findFirst({
+    where: eq(jobsTable.id, jobId),
+    columns: { companyId: true },
+  });
+
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  const company = await db.query.companiesTable.findFirst({
+    where: eq(companiesTable.id, job.companyId),
+    columns: { userId: true },
+  });
+
+  if (company?.userId !== req.user!.userId) {
+    res.status(403).json({ error: "Not authorized" });
+    return;
+  }
+
   const matches = await db.query.matchResultsTable.findMany({
     where: eq(matchResultsTable.jobId, jobId),
     orderBy: desc(matchResultsTable.overallScore),

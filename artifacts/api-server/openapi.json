@@ -81,6 +81,26 @@
         }
       }
     },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["Meta"],
+        "summary": "OpenAPI document",
+        "description": "Returns this specification as JSON; it is read from artifacts/api-server/openapi.json.",
+        "operationId": "getOpenApiDocument",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 document",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": ["Auth"],
