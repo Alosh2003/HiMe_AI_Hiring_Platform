@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import App from './App';
 import { server, TEST_IDS } from '@/test/msw';
@@ -57,6 +57,7 @@ function setRole(role: 'seeker' | 'company' | 'admin') {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   window.history.pushState({}, '', '/');
   document.documentElement.lang = '';
   document.documentElement.dir = '';
@@ -114,6 +115,60 @@ describe('language direction', () => {
     fireEvent.click(screen.getByTestId('button-language'));
     await waitFor(() => expect(document.documentElement.dir).toBe('ltr'));
     expect(screen.getByTestId('button-open-sidebar')).toBeInTheDocument();
+  });
+});
+
+// ─── Sidebar shell ──────────────────────────────────────────────────────────
+
+describe('sidebar shell', () => {
+  // jsdom's matchMedia (when present) never evaluates media conditions, so
+  // stub it to mirror window.innerWidth — the same signal renderAt() drives.
+  function stubMatchMedia() {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: /max-width:\s*767px/.test(query) && window.innerWidth < 768,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    }));
+  }
+
+  it('keeps the sidebar on-canvas at desktop widths (never parked off-screen)', async () => {
+    setRole('seeker');
+    stubMatchMedia();
+    renderAt('/seeker/dashboard', 1440);
+    await waitFor(() => expect(document.documentElement.dir).toBe('rtl'));
+
+    const aside = document.querySelector('aside');
+    expect(aside).not.toBeNull();
+    // The v4 regression: rtl:translate-x-full out-cascaded md:translate-x-0,
+    // shifting the whole sidebar a full width past the right edge.
+    expect(aside?.getAttribute('data-offcanvas')).toBe('0');
+    expect(aside?.style.transform).not.toContain('100%');
+    // Content keeps its start padding beside the visible sidebar.
+    expect(screen.getByTestId('button-toggle-sidebar')).toBeInTheDocument();
+  });
+
+  it('slides the sidebar off-canvas on mobile and back when the drawer opens', async () => {
+    setRole('seeker');
+    stubMatchMedia();
+    renderAt('/seeker/dashboard', 390);
+    await waitFor(() => expect(document.documentElement.dir).toBe('rtl'));
+
+    const aside = document.querySelector('aside');
+    expect(aside?.getAttribute('data-offcanvas')).toBe('1');
+    expect(aside?.style.transform).toContain('100%'); // RTL slides toward the right
+
+    fireEvent.click(screen.getByTestId('button-open-sidebar'));
+    expect(aside?.getAttribute('data-offcanvas')).toBe('0');
+    expect(aside?.style.transform).not.toContain('100%');
+
+    fireEvent.click(screen.getByTestId('button-role-close-sidebar'));
+    expect(aside?.getAttribute('data-offcanvas')).toBe('1');
+    expect(aside?.style.transform).toContain('100%');
   });
 });
 

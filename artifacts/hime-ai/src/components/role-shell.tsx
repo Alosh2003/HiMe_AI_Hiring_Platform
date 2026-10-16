@@ -70,9 +70,40 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
   const [folded, setFolded] = useState(() => {
     try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; }
   });
-  const { t } = useLanguage();
+  const { t, dir } = useLanguage();
   const { user, logout } = useAuth();
   const content = roleContent[role];
+
+  // Track the <768px viewport so the drawer can slide off-canvas on mobile
+  // only. Doing this in JS (instead of `ltr:`/`rtl:` + `md:` Tailwind
+  // variants) is deliberate: Tailwind v4 orders the rtl: variant AFTER the
+  // md: media query, so `rtl:translate-x-full` used to beat `md:translate-x-0`
+  // and the sidebar stayed shifted a full width off-screen on desktop.
+  // matchMedia mirrors the CSS `md:` breakpoint exactly; the innerWidth
+  // fallback covers environments without matchMedia (jsdom) and resize
+  // covers the test harness which drives width via window.innerWidth.
+  const queryNarrow = () =>
+    typeof window === 'undefined'
+      ? false
+      : typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 767px)').matches
+        : window.innerWidth < 768;
+
+  const [narrow, setNarrow] = useState(queryNarrow);
+
+  useEffect(() => {
+    const onChange = () => setNarrow(queryNarrow());
+    const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 767px)') : null;
+    mq?.addEventListener('change', onChange);
+    window.addEventListener('resize', onChange);
+    return () => {
+      mq?.removeEventListener('change', onChange);
+      window.removeEventListener('resize', onChange);
+    };
+  }, []);
+
+  // Off-canvas only while the mobile drawer is closed; desktop is always on.
+  const offCanvas = narrow && !mobileOpen;
 
   // The signed-in identity — never a hardcoded persona. Falls back to the
   // role's generic label when the session has no stored name.
@@ -102,11 +133,14 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
 
   return (
     <div className="min-h-[100dvh] bg-background">
-      <aside className={cn(
-        'fixed inset-y-0 start-0 z-50 flex w-72 flex-col border-e border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform md:translate-x-0 md:transition-[width]',
-        mobileOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full',
-        folded ? 'md:w-20' : 'md:w-72',
-      )}>
+      <aside
+        data-offcanvas={offCanvas ? '1' : '0'}
+        style={{ transform: offCanvas ? (dir === 'rtl' ? 'translateX(100%)' : 'translateX(-100%)') : 'translateX(0)' }}
+        className={cn(
+          'fixed inset-y-0 start-0 z-50 flex w-72 flex-col border-e border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform md:transition-[width]',
+          folded ? 'md:w-20' : 'md:w-72',
+        )}
+      >
         <div className={cn('flex h-20 shrink-0 items-center justify-between', folded ? 'justify-center px-3' : 'px-6')}>
           {folded ? (
             <button
