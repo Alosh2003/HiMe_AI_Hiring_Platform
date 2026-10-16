@@ -646,7 +646,11 @@ describe('assessment redirect banner', () => {
     await screen.findByTestId('banner-assess-redirect', {}, { timeout: 3000 });
 
     expect(screen.getByTestId('button-assess-continue')).toHaveTextContent('إنشاء حساب مجاني');
-    expect(screen.getByTestId('text-assess-redirect-countdown')).toHaveTextContent('خلال 8 ثوانٍ');
+    // The page never transports anyone on its own: no countdown element and
+    // no copy promising an automatic redirect — only the CTA navigates.
+    expect(screen.queryByTestId('text-assess-redirect-countdown')).not.toBeInTheDocument();
+    expect(screen.getByTestId('banner-assess-redirect').textContent).not.toContain('سيتم تحويلك');
+    expect(window.location.pathname).toBe('/assess');
   });
 
   it('stays on the results when the visitor asks to stay', async () => {
@@ -835,6 +839,49 @@ describe('CV upload', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/seeker/profile');
     }, { timeout: 3000 });
+  });
+
+  it('shows every extracted skill and the full-file counts after upload', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/seeker/cv');
+
+    await screen.findByText('AI extracted profile');
+    fireEvent.change(screen.getByTestId('input-cv-upload'), {
+      target: { files: [new File(['cv'], 'resume.pdf', { type: 'application/pdf' })] },
+    });
+
+    // The 7th skill proves the list is no longer cut down to a short preview.
+    expect(await screen.findByText('Kubernetes', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText('GraphQL')).toBeInTheDocument();
+    const counts = await screen.findByTestId('text-cv-extract-counts');
+    expect(counts).toHaveTextContent('خبرة عمل');
+    expect(counts).toHaveTextContent('مؤهل دراسي');
+    expect(counts).toHaveTextContent('مشروع');
+    expect(screen.queryByTestId('warning-cv-parse')).not.toBeInTheDocument();
+  });
+
+  it('reports a file it could not read instead of showing stale data', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.post('*/api/candidates/cv', async () => {
+        return HttpResponse.json({
+          parsed: false,
+          parseError: 'LLM returned no usable CV fields',
+        });
+      }),
+    );
+    renderAt('/seeker/cv');
+
+    await screen.findByText('AI extracted profile');
+    fireEvent.change(screen.getByTestId('input-cv-upload'), {
+      target: { files: [new File(['cv'], 'scan.pdf', { type: 'application/pdf' })] },
+    });
+
+    expect(await screen.findByTestId('warning-cv-parse', {}, { timeout: 5000 })).toHaveTextContent('LLM returned no usable CV fields');
+    // The extracted card must not claim fresh extraction for this upload.
+    expect(screen.queryByTestId('text-cv-extract-counts')).not.toBeInTheDocument();
   });
 });
 

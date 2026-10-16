@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowUpLeft, Check, CheckCircle2, CircleAlert, FileText, Sparkles, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { PublicNav } from '@/components/app-kit';
 import { ScoreRing } from '@/components/app-kit';
 import { useLanguage } from '@/i18n';
 import { useAuth } from '@/contexts/auth-context';
-import { ASSESS_REDIRECT_DELAY_MS, assessRedirectTarget } from '@/lib/routes';
+import { assessRedirectTarget } from '@/lib/routes';
 import { assessCv as assessCvApi, ApiError, type CvAssessment } from '@/services/api/demo-api';
 
 type Assessment = CvAssessment;
@@ -94,46 +94,17 @@ export function AssessPage() {
   const [error, setError] = useState('');
   const [rateLimited, setRateLimited] = useState(false);
   const [result, setResult] = useState<Assessment | null>(null);
-  // Countdown to the automatic redirect; cleared when the visitor stays.
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  // Set once the visitor dismisses the continue banner.
   const [stayed, setStayed] = useState(false);
-  const timerRef = useRef<number | null>(null);
 
   // Where this assessment leads: register for guests, matching jobs or CV
   // improvement for signed-in seekers, own dashboard for other roles.
+  // The page never transports anyone on its own — navigation happens only
+  // when the visitor presses the CTA under the result.
   const target = useMemo(
     () => (result ? assessRedirectTarget(isAuthenticated, user?.role, result.overallScore) : null),
     [result, isAuthenticated, user?.role],
   );
-
-  useEffect(() => {
-    if (!result || !target || stayed) return;
-
-    setSecondsLeft(Math.ceil(ASSESS_REDIRECT_DELAY_MS / 1000));
-    timerRef.current = window.setInterval(() => {
-      setSecondsLeft((prev) => (prev === null ? null : Math.max(0, prev - 1)));
-    }, 1000);
-
-    return () => {
-      if (timerRef.current !== null) window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    };
-  }, [result, target, stayed]);
-
-  // The actual redirect lives outside the interval so a re-render can never
-  // fire it twice.
-  useEffect(() => {
-    if (result && target && !stayed && secondsLeft === 0) {
-      stopTimer();
-      navigate(target);
-    }
-  }, [result, target, stayed, secondsLeft, navigate]);
-
-  const stopTimer = () => {
-    if (timerRef.current !== null) window.clearInterval(timerRef.current);
-    timerRef.current = null;
-    setSecondsLeft(null);
-  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -172,7 +143,6 @@ export function AssessPage() {
   };
 
   const reset = () => {
-    stopTimer();
     setResult(null);
     setFile(null);
     setRole('');
@@ -182,25 +152,23 @@ export function AssessPage() {
   };
 
   const stay = () => {
-    stopTimer();
     setStayed(true);
   };
 
   const goNow = () => {
     if (!target) return;
-    stopTimer();
     navigate(target);
   };
 
   const redirectCopy = !result || !target
     ? null
     : !isAuthenticated
-      ? { title: 'نتيجتك محفوظة — لنكمل', body: 'سيتم تحويلك إلى إنشاء حساب مجاني لاستكشاف الوظائف المطابقة.', cta: 'إنشاء حساب مجاني' }
+      ? { title: 'نتيجتك محفوظة — لنكمل', body: 'أنشئ حساباً مجانياً لاستكشاف الوظائف المطابقة وحفظ نتيجتك.', cta: 'إنشاء حساب مجاني' }
       : target === '/seeker/recommendations'
-        ? { title: 'نتيجتك قوية — شاهد وظائفك', body: 'سيتم تحويلك إلى الوظائف المطابقة لملفك.', cta: 'استكشف الوظائف المطابقة' }
+        ? { title: 'نتيجتك قوية — شاهد وظائفك', body: 'انتقل إلى الوظائف المطابقة لملفك.', cta: 'استكشف الوظائف المطابقة' }
         : target === '/seeker/cv'
-          ? { title: 'قوِّ سيرتك أولاً', body: 'سيتم تحويلك إلى صفحة السيرة الذاتية لتحسين النقاط أدناه قبل التقديم.', cta: 'حسّن سيرتك' }
-          : { title: 'العودة إلى لوحة التحكم', body: 'سيتم تحويلك إلى لوحة التحكم الخاصة بك.', cta: 'الانتقال إلى لوحة التحكم' };
+          ? { title: 'قوِّ سيرتك أولاً', body: 'انتقل إلى صفحة السيرة الذاتية لتحسين النقاط أدناه قبل التقديم.', cta: 'حسّن سيرتك' }
+          : { title: 'العودة إلى لوحة التحكم', body: 'لوحة التحكم جاهزة لمتابعة نشاطك.', cta: 'الانتقال إلى لوحة التحكم' };
 
   return (
     <div className="grain">
@@ -314,22 +282,19 @@ export function AssessPage() {
           </form>
         ) : (
           <div className="space-y-8" data-testid="status-assess-result">
-            {redirectCopy && !stayed && secondsLeft !== null && (
+            {redirectCopy && !stayed && (
               <div
                 className="mx-auto flex max-w-2xl flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center"
                 data-testid="banner-assess-redirect"
               >
                 <p className="text-sm font-bold">{redirectCopy.title}</p>
-                <p className="text-xs leading-6 text-muted-foreground">
-                  {redirectCopy.body}{' '}
-                  <span data-testid="text-assess-redirect-countdown">خلال {secondsLeft} ثوانٍ</span>
-                </p>
+                <p className="text-xs leading-6 text-muted-foreground">{redirectCopy.body}</p>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button size="sm" onClick={goNow} data-testid="button-assess-continue">
                     {redirectCopy.cta} <ArrowUpLeft className="h-4 w-4" />
                   </Button>
                   <Button size="sm" variant="outline" onClick={stay} data-testid="button-assess-stay">
-                    البقاء هنا
+                    لاحقاً
                   </Button>
                 </div>
               </div>

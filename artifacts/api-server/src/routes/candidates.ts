@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable } from "@workspace/db/schema";
@@ -10,6 +10,29 @@ import { parseCvText } from "../ai/cv-parser";
 import { calculateProfileCompletion } from "../ai/llm";
 import { saveFile } from "../services/file-storage";
 import { parseDocument } from "../services/document-parser";
+
+/** Trim a value and treat "N/A"-style placeholders from the model as absent. */
+function cleanField(value: string | null | undefined): string | null {
+  const v = value?.trim() ?? "";
+  return v === "" || /^(n\/?a|none|null|undefined|-|\?+)$/i.test(v) ? null : v;
+}
+
+/** Drop repeats — models sometimes re-emit a line that appears twice (or an exact duplicate) in the CV. */
+function uniqueBy<T>(rows: T[], key: (row: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const k = key(row).trim().toLowerCase();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/** A year column: accept a number or a numeric string, else absent. */
+function toYear(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 1900 && n < 2200 ? n : null;
+}
 
 const router: IRouter = Router();
 
@@ -275,7 +298,10 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
         headline?: string;
         summary?: string;
         skills?: string[];
-        experiences?: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
+        experiences?: { role: string; company: string; location?: string; description: string; startDate?: string; endDate?: string }[];
+        education?: { degree: string; field?: string; institution?: string; year?: number }[];
+        projects?: { name: string; description?: string; url?: string }[];
+        certifications?: { name: string; issuer?: string; year?: number }[];
       } | undefined;
       let parseError: string | undefined;
 
@@ -287,6 +313,9 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
             summary: llmResult.summary,
             skills: llmResult.skills,
             experiences: llmResult.experiences,
+            education: llmResult.education,
+            projects: llmResult.projects,
+            certifications: llmResult.certifications,
           };
 
           // Auto-update profile
@@ -300,30 +329,94 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
               .set({ summary: llmResult.summary, updatedAt: new Date() })
               .where(eq(candidatesTable.id, candidate.id));
           }
-          if (llmResult.skills.length > 0) {
-            for (const skillName of llmResult.skills) {
-              let skillRecord = await db.query.skillsTable.findFirst({
-                where: eq(skillsTable.name, skillName),
-              });
-              if (!skillRecord) {
-                const inserted = await db.insert(skillsTable).values({
-                  name: skillName,
-                  category: "professional" as const,
-                }).returning();
-                skillRecord = inserted[0];
-              }
-              const existing = await db.query.candidateSkillsTable.findFirst({
-                where: sql`${candidateSkillsTable.candidateId} = ${candidate.id} AND ${candidateSkillsTable.skillId} = ${skillRecord.id}`,
-              });
-              if (!existing) {
-                await db.insert(candidateSkillsTable).values({
+
+          // The CV is the source of truth: replace the derived rows with what
+          // the model just read from THIS document, so entries from an older
+          // CV or placeholder data can never outlive the upload. One
+          // transaction — a mid-way failure must not leave the profile
+          // half-cleared. Runs only on a successful parse; a failed parse
+          // keeps the existing rows and reports parseError instead.
+          await db.transaction(async (tx) => {
+            if (llmResult.skills.length > 0) {
+              await tx.delete(candidateSkillsTable).where(eq(candidateSkillsTable.candidateId, candidate.id));
+              for (const rawName of uniqueBy(llmResult.skills, (s) => s)) {
+                const skillName = rawName.trim();
+                let skillRecord = await tx.query.skillsTable.findFirst({
+                  where: eq(skillsTable.name, skillName),
+                });
+                if (!skillRecord) {
+                  const inserted = await tx.insert(skillsTable).values({
+                    name: skillName,
+                    category: "professional" as const,
+                  }).returning();
+                  skillRecord = inserted[0];
+                }
+                await tx.insert(candidateSkillsTable).values({
                   candidateId: candidate.id,
                   skillId: skillRecord.id,
                   proficiency: 3,
                 });
               }
             }
-          }
+
+            await tx.delete(experiencesTable).where(eq(experiencesTable.candidateId, candidate.id));
+            for (const exp of uniqueBy(
+              llmResult.experiences.filter((e) => cleanField(e?.role) && cleanField(e?.company)),
+              (e) => `${e.role}|${e.company}`,
+            )) {
+              const endDate = cleanField(exp.endDate);
+              await tx.insert(experiencesTable).values({
+                candidateId: candidate.id,
+                role: exp.role.trim(),
+                company: exp.company.trim(),
+                location: cleanField(exp.location),
+                description: cleanField(exp.description),
+                startDate: cleanField(exp.startDate),
+                endDate,
+                current: !endDate,
+              });
+            }
+
+            await tx.delete(educationTable).where(eq(educationTable.candidateId, candidate.id));
+            for (const edu of uniqueBy(
+              llmResult.education.filter((e) => cleanField(e?.degree)),
+              (e) => `${e.degree}|${e.institution ?? ""}`,
+            )) {
+              await tx.insert(educationTable).values({
+                candidateId: candidate.id,
+                degree: edu.degree.trim(),
+                field: cleanField(edu.field),
+                institution: cleanField(edu.institution),
+                year: toYear(edu.year),
+              });
+            }
+
+            await tx.delete(projectsTable).where(eq(projectsTable.candidateId, candidate.id));
+            for (const project of uniqueBy(
+              llmResult.projects.filter((p) => cleanField(p?.name)),
+              (p) => p.name,
+            )) {
+              await tx.insert(projectsTable).values({
+                candidateId: candidate.id,
+                name: project.name.trim(),
+                description: cleanField(project.description),
+                url: cleanField(project.url),
+              });
+            }
+
+            await tx.delete(certificationsTable).where(eq(certificationsTable.candidateId, candidate.id));
+            for (const cert of uniqueBy(
+              llmResult.certifications.filter((c) => cleanField(c?.name)),
+              (c) => `${c.name}|${c.issuer ?? ""}`,
+            )) {
+              await tx.insert(certificationsTable).values({
+                candidateId: candidate.id,
+                name: cert.name.trim(),
+                issuer: cleanField(cert.issuer),
+                year: toYear(cert.year),
+              });
+            }
+          });
         } catch (err) {
           // Surface the reason instead of returning an empty profile with no
           // indication that parsing failed.

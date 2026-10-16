@@ -225,10 +225,15 @@ export const handlers = [
     return HttpResponse.json({
       ...candidate,
       cvUrl: '/files/test.pdf',
+      parsed: true,
       cvParsedData: {
         headline: 'مهندس برمجيات أول',
         summary: 'خبرة في بناء أنظمة قابلة للتوسع.',
-        skills: ['Node.js', 'PostgreSQL', 'TypeScript'],
+        skills: ['Node.js', 'PostgreSQL', 'TypeScript', 'React', 'Docker', 'Kubernetes', 'GraphQL'],
+        experiences: [{ role: 'System Analyst', company: 'ACME', description: 'Entire systems', startDate: '2023-01', endDate: null }],
+        education: [{ degree: 'BSc', field: 'Computer Science', institution: 'KSU', year: 2022 }],
+        projects: [{ name: 'Data Pipeline', description: 'Batch pipeline', url: null }],
+        certifications: [],
       },
       file: { id: 'f-1', name: 'resume.pdf', url: '/files/test.pdf', size: 1024 },
     });

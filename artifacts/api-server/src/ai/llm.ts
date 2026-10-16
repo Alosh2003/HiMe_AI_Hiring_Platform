@@ -32,7 +32,11 @@ interface CallOptions {
 
 // ─── OpenAI ────────────────────────────────────────────────────────────────
 
-async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
+async function callOpenAI(
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens = 1000,
+): Promise<LLMResponse> {
   if (!OPENAI_API_KEY) return { content: "" };
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -48,7 +52,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<LLM
         { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 1000,
+      max_tokens: maxOutputTokens,
     }),
   });
 
@@ -81,6 +85,10 @@ async function callOllama(
     temperature: 0.7,
     max_tokens: maxOutputTokens,
     stream: false,
+    // Ollama's default 4096-token context must hold the prompt AND the whole
+    // response; a full CV plus a long JSON answer overflows it and the reply
+    // gets cut off mid-object. Give the pair room.
+    options: { num_ctx: 8192 },
   };
   if (options.json) {
     body["response_format"] = { type: "json_object" };
@@ -195,7 +203,7 @@ async function callProvider(
     case "gemini":
       return callGemini(systemPrompt, userPrompt, maxOutputTokens, options);
     case "openai":
-      return callOpenAI(systemPrompt, userPrompt);
+      return callOpenAI(systemPrompt, userPrompt, maxOutputTokens);
     case "none":
       return { content: "" };
   }
@@ -261,37 +269,62 @@ export function extractJson(raw: string): unknown {
 
 // ─── CV Parsing ────────────────────────────────────────────────────────────
 
-export async function parseCvWithLLM(cvText: string): Promise<{
+export interface ParsedCv {
   headline: string;
   summary: string;
   skills: string[];
-  experiences: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
-}> {
+  experiences: {
+    role: string;
+    company: string;
+    location?: string;
+    description: string;
+    startDate?: string;
+    endDate?: string;
+  }[];
+  education: { degree: string; field?: string; institution?: string; year?: number }[];
+  projects: { name: string; description?: string; url?: string }[];
+  certifications: { name: string; issuer?: string; year?: number }[];
+}
+
+export async function parseCvWithLLM(cvText: string): Promise<ParsedCv> {
   const systemPrompt = `You are an AI assistant that extracts structured information from CV/resume text.
 Extract the following as JSON:
 {
   "headline": "Professional headline or title",
   "summary": "Brief professional summary (2-3 sentences)",
   "skills": ["skill1", "skill2", "skill3"],
-  "experiences": [{ "role": "Job title", "company": "Company name", "description": "Brief description", "startDate": "YYYY-MM", "endDate": "YYYY-MM or null" }]
+  "experiences": [{ "role": "Job title", "company": "Company name", "location": "City, Country or null", "description": "Brief description", "startDate": "YYYY-MM", "endDate": "YYYY-MM or null" }],
+  "education": [{ "degree": "Degree", "field": "Field of study", "institution": "University or school", "year": 2024 }],
+  "projects": [{ "name": "Project name", "description": "One sentence", "url": "https://... or null" }],
+  "certifications": [{ "name": "Certification name", "issuer": "Issuer", "year": 2024 }]
 }
 
+Rules:
+- Read the ENTIRE document, every section and page — not just the opening.
+- Include EVERY skill, experience, education entry, project and certification you find.
+- Use null for missing optional values; keep every key.
 Return ONLY the JSON object, no other text.`;
 
   try {
-    const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`, 1000, { json: true });
-    const parsed = extractJson(result.content) as {
-      headline: string;
-      summary: string;
-      skills: string[];
-      experiences: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
-    };
+    // The response now covers five sections of a whole CV; 1000 tokens cut it
+    // off mid-object (finishReason: MAX_TOKENS) and produced invalid JSON.
+    const result = await callLLM(systemPrompt, `CV Text:\n${cvText}`, 4000, { json: true });
+    const parsed = extractJson(result.content) as Partial<ParsedCv>;
     // An empty parse means the model replied but with nothing usable; make
     // that visible rather than looking like a successful empty result.
     if (!parsed?.headline && !parsed?.skills?.length) {
       throw new Error("LLM returned no usable CV fields");
     }
-    return parsed;
+    // Normalize: models occasionally drop an empty section entirely.
+    return {
+      headline: parsed.headline ?? "",
+      summary: parsed.summary ?? "",
+      skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+      experiences: Array.isArray(parsed.experiences) ? parsed.experiences : [],
+      education: Array.isArray(parsed.education) ? parsed.education : [],
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      certifications: Array.isArray(parsed.certifications) ? parsed.certifications : [],
+    };
   } catch (err) {
     logger.error({ err }, "parseCvWithLLM failed");
     throw err instanceof Error ? err : new Error("CV parsing failed");

@@ -295,12 +295,21 @@ export function SeekerCvPage() {
   const { data: profile, loading } = useDemo(getProfile, []);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
-  const [extracted, setExtracted] = useState<{ headline?: string; summary?: string; skills?: string[] } | null>(null);
+  const [extracted, setExtracted] = useState<{
+    headline?: string;
+    summary?: string;
+    skills?: string[];
+    experiences?: unknown[];
+    education?: unknown[];
+    projects?: unknown[];
+  } | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [parseWarning, setParseWarning] = useState('');
 
   const upload = async (file?: File) => {
     const validationError = validateCvFile(file);
     setUploadError(validationError);
+    setParseWarning('');
     setUploaded(false);
     if (validationError || !file) return;
 
@@ -308,9 +317,16 @@ export function SeekerCvPage() {
     try {
       const result = await uploadCv(file);
       setUploaded(true);
-      // Show what the model actually pulled out before moving on.
-      const parsed = (result as { cvParsedData?: { headline?: string; summary?: string; skills?: string[] } }).cvParsedData;
-      setExtracted(parsed ?? { headline: profile?.headline, summary: profile?.summary, skills: profile?.skills?.map((s) => s.name) });
+      // Show what the model actually pulled out of THIS file — and say so
+      // when it could not be read instead of silently falling back to older
+      // data that may not match the document at all.
+      const res = result as { cvParsedData?: typeof extracted; parsed?: boolean; parseError?: string };
+      if (res.cvParsedData && (res.parsed ?? true)) {
+        setExtracted(res.cvParsedData);
+      } else {
+        setExtracted(null);
+        setParseWarning(res.parseError || 'تعذر تحليل هذا الملف نصياً — تأكد أن السيرة نصية وليست صورة ممسوحة ضوئياً.');
+      }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'تعذر رفع السيرة الذاتية حالياً. حاول مرة أخرى.');
     } finally {
@@ -342,7 +358,17 @@ export function SeekerCvPage() {
               </Button>
             </div>}
           </CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />AI extracted profile</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-secondary/60 p-5"><div className="flex items-center justify-between"><span className="text-sm font-bold">{extracted?.headline || profile.headline || 'مصمم منتجات'}</span><span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">مستخرج</span></div><p className="mt-3 text-xs leading-6 text-muted-foreground">{extracted?.summary || profile.summary || 'مصمم منتجات بخبرة 4 سنوات في بناء تجارب رقمية عربية، مع تركيز على البحث وأنظمة التصميم.'}</p><div className="mt-4 flex flex-wrap gap-2">{(extracted?.skills?.length ? extracted.skills : profile.skills.map((s) => s.name)).slice(0, 6).map((name, i) => <span key={`${name}-${i}`} className="rounded-md bg-background px-2 py-1 text-[11px]">{name}</span>)}</div></div><p className="mt-4 flex items-start gap-2 text-xs leading-6 text-muted-foreground"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-accent" />{t('review')} {t('decision')}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />AI extracted profile</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-secondary/60 p-5"><div className="flex items-center justify-between"><span className="text-sm font-bold">{extracted?.headline || profile.headline || 'لم يُستخرج بعد'}</span><span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">مستخرج</span></div><p className="mt-3 text-xs leading-6 text-muted-foreground">{extracted?.summary || profile.summary || 'ارفع سيرتك ليستخرج النظام ملخصاً مهنياً تراجعه بنفسك.'}</p><div className="mt-4 flex flex-wrap gap-2">{(extracted?.skills?.length ? extracted.skills : profile.skills.map((s) => s.name)).map((name, i) => <span key={`${name}-${i}`} className="rounded-md bg-background px-2 py-1 text-[11px]">{name}</span>)}</div>
+                  {extracted && (extracted.experiences?.length || extracted.education?.length || extracted.projects?.length) ? (
+                    <p className="mt-4 border-t border-border/60 pt-3 text-[11px] text-muted-foreground" data-testid="text-cv-extract-counts">
+                      من الملف كاملاً: {extracted.experiences?.length ?? 0} خبرة عمل · {extracted.education?.length ?? 0} مؤهل دراسي · {extracted.projects?.length ?? 0} مشروع
+                    </p>
+                  ) : null}
+                </div>
+                {parseWarning && (
+                  <p className="mt-3 rounded-lg bg-accent/10 p-3 text-xs leading-6 text-accent-foreground" role="alert" data-testid="warning-cv-parse">{parseWarning}</p>
+                )}
+                <p className="mt-4 flex items-start gap-2 text-xs leading-6 text-muted-foreground"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-accent" />{t('review')} {t('decision')}</p></CardContent></Card>
         </div>
         <Card className="h-fit"><CardHeader><CardTitle className="text-base">حالة الملف</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-primary"><CheckCircle2 className="h-5 w-5" /></div><div><p className="text-sm font-bold">تم التحليل</p><p className="text-xs text-muted-foreground">آخر تحديث: اليوم</p></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />المعلومات الأساسية</div><div className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />الخبرة والمهارات</div><div className="flex items-center gap-2 text-muted-foreground"><span className="h-4 w-4 rounded-full border border-border" />مراجعة واعتماد</div></div></CardContent></Card>
       </div>

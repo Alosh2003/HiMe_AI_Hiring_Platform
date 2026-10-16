@@ -27,7 +27,6 @@ export const ONBOARDING_START: Record<UserRole, string> = {
  * applying. Other roles fall back to their own dashboard.
  */
 export const ASSESS_SCORE_THRESHOLD = 60;
-export const ASSESS_REDIRECT_DELAY_MS = 8000;
 
 export function assessRedirectTarget(
   isAuthenticated: boolean,

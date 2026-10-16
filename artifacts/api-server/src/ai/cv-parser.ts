@@ -2,12 +2,9 @@
 // Uses LLM to parse CV content since we don't have file upload storage yet.
 // When a user uploads a CV, the file content is extracted and sent to the LLM.
 
-export async function parseCvText(cvText: string): Promise<{
-  headline: string;
-  summary: string;
-  skills: string[];
-  experiences: { role: string; company: string; description: string; startDate?: string; endDate?: string }[];
-}> {
+import type { ParsedCv } from "./llm";
+
+export async function parseCvText(cvText: string): Promise<ParsedCv> {
   // Import dynamically to avoid issues
   const { parseCvWithLLM } = await import("./llm");
   return parseCvWithLLM(cvText);
