@@ -109,7 +109,14 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
       )}>
         <div className={cn('flex h-20 shrink-0 items-center justify-between', folded ? 'justify-center px-3' : 'px-6')}>
           {folded ? (
-            <Link href="/" className="grid h-10 w-10 place-items-center rounded-xl bg-sidebar-primary text-sm font-black text-sidebar-primary-foreground" aria-label="HiMe AI" data-testid="link-role-compact-logo">H</Link>
+            <button
+              type="button"
+              onClick={() => setFolded(false)}
+              className="grid h-10 w-10 place-items-center rounded-xl bg-sidebar-primary text-sm font-black text-sidebar-primary-foreground"
+              aria-label="فتح القائمة الجانبية"
+              title="فتح القائمة الجانبية — عرض أسماء الصفحات"
+              data-testid="button-unfold-rail"
+            >H</button>
           ) : (
             <Logo light />
           )}
