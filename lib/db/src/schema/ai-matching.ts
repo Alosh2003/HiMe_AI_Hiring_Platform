@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,7 +18,11 @@ export const matchResultsTable = pgTable("match_results", {
   explanation: text("explanation"),
   modelVersion: text("model_version").notNull().default("v1"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  // One snapshot per (job, candidate): re-running a match updates it instead
+  // of stacking duplicate rows that rankings would then show several times.
+  jobCandidateUnique: uniqueIndex("match_results_job_candidate_unique").on(table.jobId, table.candidateId),
+}));
 
 export const insertMatchResultSchema = createInsertSchema(matchResultsTable).omit({
   id: true,

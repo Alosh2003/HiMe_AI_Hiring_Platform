@@ -316,13 +316,16 @@ export function RecommendationsPage() {
               <div className="flex items-center gap-4 md:block">
                 <ScoreRing score={match.score} />
                 <div className="md:mt-3">
-                  <p className="font-bold">{jobTitles[match.jobId] || 'وظيفة مقترحة'}</p>
+                  <p className="font-bold">{match.jobTitle || jobTitles[match.jobId] || 'وظيفة مقترحة'}</p>
                   <p className="mt-1 text-xs text-muted-foreground">توصية مبنية على ملفك</p>
                 </div>
               </div>
               <div>
                 <p className="mb-4 text-xs font-bold uppercase tracking-wider text-primary">تفصيل التطابق</p>
                 <ScoreBreakdown match={match} />
+                {match.explanation && (
+                  <p className="mt-4 rounded-lg bg-secondary/60 p-3 text-xs leading-6 text-muted-foreground" data-testid={`explanation-${match.id}`}>{match.explanation}</p>
+                )}
               </div>
               <div>
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-primary">ماذا تطابق؟</p>
@@ -407,7 +410,7 @@ export function ApplicationsPage() {
                   <span className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusColors[item.status]}`} data-testid={`status-application-${item.id}`}>
                     {statusLabels[item.status]}
                   </span>
-                  <span className="text-xs font-bold text-primary">{item.matchScore}%</span>
+                  <span className="text-xs font-bold text-primary">{item.matchScore != null ? `${item.matchScore}%` : '—'}</span>
                 </div>
               </div>
             ))}
@@ -955,12 +958,14 @@ export function CandidatesPage() {
       />
       <WorkflowGuide role="company" current="candidates" />
 
-      {/* Summary row */}
-      <div className="mb-5 flex gap-4 rounded-2xl border border-border bg-card p-4 text-sm">
-        <span className="text-muted-foreground">{data.length} مرشح</span>
-        <span className="text-primary font-semibold">أعلى تطابق: {Math.max(...data.map(c => c.score))}%</span>
-        <span className="text-muted-foreground">متوسط: {Math.round(data.reduce((s, c) => s + c.score, 0) / data.length)}%</span>
-      </div>
+      {/* Summary row — only meaningful once there is at least one candidate */}
+      {data.length > 0 && (
+        <div className="mb-5 flex gap-4 rounded-2xl border border-border bg-card p-4 text-sm">
+          <span className="text-muted-foreground">{data.length} مرشح</span>
+          <span className="text-primary font-semibold">أعلى تطابق: {Math.max(...data.map(c => c.score))}%</span>
+          <span className="text-muted-foreground">متوسط: {Math.round(data.reduce((s, c) => s + c.score, 0) / data.length)}%</span>
+        </div>
+      )}
 
       <div className="space-y-4">
         {candidates.map((candidate) => (

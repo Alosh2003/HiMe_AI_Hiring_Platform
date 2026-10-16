@@ -7,6 +7,8 @@ import { authMiddleware, requireRole, type AuthRequest } from "../middleware/aut
 import { validateUuidParam } from "../middleware/validate-params";
 import { notify } from "../lib/notify";
 import { sendEmail } from "../lib/email";
+import { generateMatchExplanation } from "../ai/llm";
+import { computeMatchSnapshot, persistMatchSnapshot, type MatchSnapshot } from "../ai/match-snapshot";
 import { getConfig } from "../config/env";
 
 const router: IRouter = Router();
@@ -93,6 +95,32 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     .set({ applicantsCount: sql`${jobsTable.applicantsCount} + 1` })
     .where(eq(jobsTable.id, parsed.data.jobId));
 
+  // AI match snapshot: the engine is a pure algorithm, so the seeker and the
+  // company both see a real score from the moment the application exists.
+  // Any failure here must never cost the candidate their application.
+  let snapshot: MatchSnapshot | null = null;
+  try {
+    snapshot = await computeMatchSnapshot(job.id, candidate.id);
+    if (snapshot) {
+      await persistMatchSnapshot(job.id, candidate.id, snapshot);
+      await db.update(applicationsTable)
+        .set({
+          matchScore: snapshot.overallScore,
+          matchBreakdown: snapshot.flatBreakdown,
+          aiExplanation: snapshot.explanation,
+        })
+        .where(eq(applicationsTable.id, application[0].id));
+      application[0] = {
+        ...application[0],
+        matchScore: snapshot.overallScore,
+        matchBreakdown: snapshot.flatBreakdown,
+        aiExplanation: snapshot.explanation,
+      };
+    }
+  } catch {
+    // Left unscored rather than rejected; the candidate list computes it later.
+  }
+
   res.status(201).json(application[0]);
 
   // Confirmation that the application actually landed — the seeker should
@@ -103,6 +131,30 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     `HiMe AI — استلمنا طلبك لوظيفة: ${job.title}`,
     `مرحباً،\n\nاستلمنا طلب التقديم على وظيفة "${job.title}". يمكنك متابعة حالة الطلبات من حسابك:\n${getConfig().FRONTEND_URL}/seeker/applications`,
   );
+
+  // LLM explanation upgrade — fire-and-forget, the same pattern as job skill
+  // enrichment: the rule-based explanation is already stored above, this only
+  // improves it when a provider answers.
+  void (async () => {
+    if (!snapshot) return;
+    try {
+      const explanation = await generateMatchExplanation(
+        job.title,
+        candidate.headline || candidate.id,
+        snapshot.overallScore,
+        snapshot.breakdown,
+      );
+      if (!explanation) return;
+      await db.update(applicationsTable)
+        .set({ aiExplanation: explanation })
+        .where(eq(applicationsTable.id, application[0].id));
+      await db.update(matchResultsTable)
+        .set({ explanation })
+        .where(and(eq(matchResultsTable.jobId, job.id), eq(matchResultsTable.candidateId, candidate.id)));
+    } catch {
+      // Best effort — the stored rule-based explanation stands.
+    }
+  })();
 });
 
 router.get("/my", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -179,22 +231,62 @@ router.get("/job/:jobId", authMiddleware, requireRole("company"), validateUuidPa
       })
     : [];
 
+  // Candidates carry no name column — it lives on the user row. Joining it
+  // here is what lets the UI show a person instead of a headline.
+  const userIds = [...new Set(candidates.map((c) => c.userId))];
+  const users = userIds.length > 0
+    ? await db.query.usersTable.findMany({
+        where: inArray(usersTable.id, userIds),
+        columns: { id: true, name: true },
+      })
+    : [];
+  const nameMap = new Map(users.map((u) => [u.id, u.name]));
+  const candidateMap = new Map(
+    candidates.map((c) => [c.id, { ...c, name: nameMap.get(c.userId) || c.headline || "مرشح" }]),
+  );
+
   const matchResults = await db.query.matchResultsTable.findMany({
     where: eq(matchResultsTable.jobId, job.id),
   });
+  const matchByCandidate = new Map(
+    matchResults.filter((m) => m.breakdown !== null).map((m) => [m.candidateId, m]),
+  );
 
-  const candidateMap = new Map(candidates.map((c) => [c.id, c]));
+  const enriched = await Promise.all(applications.map(async (app) => {
+    const stored = matchByCandidate.get(app.candidateId);
+    let match = stored && stored.breakdown
+      ? { overallScore: stored.overallScore, breakdown: stored.breakdown, explanation: stored.explanation }
+      : null;
 
-  const enriched = applications.map((app) => {
-    const match = matchResults.find((m) => m.candidateId === app.candidateId);
+    if (!match) {
+      // Applications written before match snapshots existed (or by a failed
+      // compute) get one now — computed once, persisted, reused afterwards.
+      try {
+        const snapshot = await computeMatchSnapshot(job.id, app.candidateId);
+        if (snapshot) {
+          await persistMatchSnapshot(job.id, app.candidateId, snapshot);
+          await db.update(applicationsTable)
+            .set({
+              matchScore: snapshot.overallScore,
+              matchBreakdown: snapshot.flatBreakdown,
+              aiExplanation: snapshot.explanation,
+            })
+            .where(eq(applicationsTable.id, app.id));
+          match = { overallScore: snapshot.overallScore, breakdown: snapshot.breakdown, explanation: snapshot.explanation };
+        }
+      } catch {
+        // Leave this row unranked rather than failing the whole list.
+      }
+    }
+
     return {
       ...app,
       candidate: candidateMap.get(app.candidateId) || null,
-      matchScore: match?.overallScore,
-      matchBreakdown: match?.breakdown,
-      aiExplanation: match?.explanation,
+      matchScore: match?.overallScore ?? app.matchScore ?? undefined,
+      matchBreakdown: match?.breakdown ?? app.matchBreakdown ?? undefined,
+      aiExplanation: match?.explanation ?? app.aiExplanation ?? undefined,
     };
-  });
+  }));
 
   enriched.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
 
@@ -324,11 +416,24 @@ router.get("/matches/:jobId", authMiddleware, requireRole("company"), validateUu
     : [];
 
   const candidateMap = new Map(candidates.map((c) => [c.id, c]));
+  const matchUserIds = [...new Set(candidates.map((c) => c.userId))];
+  const matchUsers = matchUserIds.length > 0
+    ? await db.query.usersTable.findMany({
+        where: inArray(usersTable.id, matchUserIds),
+        columns: { id: true, name: true },
+      })
+    : [];
+  const matchNameMap = new Map(matchUsers.map((u) => [u.id, u.name]));
 
-  res.json(matches.map((m) => ({
-    ...m,
-    candidate: candidateMap.get(m.candidateId) || null,
-  })));
+  res.json(matches.map((m) => {
+    const candidate = candidateMap.get(m.candidateId);
+    return {
+      ...m,
+      candidate: candidate
+        ? { ...candidate, name: matchNameMap.get(candidate.userId) || candidate.headline || "مرشح" }
+        : null,
+    };
+  }));
 });
 
 export default router;

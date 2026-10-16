@@ -1,4 +1,4 @@
-import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchResult, User, VerificationStatus } from '@/types';
+import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchBreakdown, MatchResult, Skill, User, VerificationStatus } from '@/types';
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
 
@@ -27,7 +27,7 @@ const makeJob = (id: string, title: string, c: Company, extra: Partial<Job> = {}
 const demoJobs: Job[] = [makeJob('j-1', 'مصمم تجربة مستخدم أول', demoCompany, { requiredSkills: skills(['Figma', 'User research', 'Arabic UX']), preferredSkills: skills(['Design systems', 'Prototyping']), experience: 'senior', applicants: 18 }), makeJob('j-2', 'مدير منتج — منصات الذكاء الاصطناعي', demoCompanies[1], { requiredSkills: skills(['Product strategy', 'AI products', 'Roadmapping']), preferredSkills: skills(['B2B SaaS', 'Analytics']), salary: '22,000 – 30,000 ر.س', applicants: 31 }), makeJob('j-3', 'مهندس واجهات أمامية', demoCompany, { requiredSkills: skills(['React', 'TypeScript', 'CSS']), preferredSkills: skills(['Testing', 'Accessibility']), location: 'الرياض أو عن بعد', applicants: 42 }), makeJob('j-4', 'كاتب محتوى تقني', demoCompanies[2], { requiredSkills: skills(['Arabic writing', 'Content strategy', 'SEO']), preferredSkills: skills(['English', 'B2B']), contract: 'contract', experience: 'entry', salary: '9,000 – 13,000 ر.س', applicants: 12 })];
 const demoExperiences = [{ id: 'e-1', role: 'مصمم منتجات', company: 'ستوديو رِواق', location: 'الرياض', startDate: '2021', endDate: 'الآن', description: 'تصميم تجارب رقمية لمنتجات مالية وتعليمية.' }];
 const demoProfile: CandidateProfile = { id: 'p-1', userId: 'u-1', headline: 'مصمم منتجات يهتم بما يشعر به الناس', summary: 'أصمم منتجات رقمية عربية واضحة، من البحث إلى الإطلاق، مع اهتمام خاص بإمكانية الوصول واللغة.', location: 'الرياض، السعودية', phone: '+966 50 123 4567', skills: skills(['Figma', 'User research', 'Arabic UX', 'Design systems', 'Prototyping']), experiences: demoExperiences, education: [{ id: 'ed-1', institution: 'جامعة الملك سعود', degree: 'بكالوريوس', field: 'تصميم الوسائط الرقمية', year: '2020' }], projects: [{ id: 'pr-1', name: 'مَسار', description: 'تجربة تخطيط مالي للشباب.', skills: ['Research', 'Figma'] }], certifications: [{ id: 'cert-1', name: 'Google UX Design', issuer: 'Google', year: '2022' }], completion: 82, cvStatus: 'analyzed', preferences: { industries: ['تقنية المعلومات'], locations: ['الرياض', 'عن بعد'], contract: 'full-time', remote: true } };
-const demoRecommendations: MatchResult[] = demoJobs.slice(0, 3).map((job, i) => ({ id: `m-${i}`, jobId: job.id, candidateId: 'u-1', score: [92, 87, 76][i], breakdown: { skills: [94, 84, 71][i], experience: [90, 91, 74][i], education: [92, 86, 78][i], projects: [88, 82, 71][i], certifications: [89, 75, 66][i], semantic: [95, 91, 80][i] }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), relevantExperience: demoExperiences, relevantProjects: demoProfile.projects, explanation: 'خبرتك في تصميم المنتجات والبحث النوعي تتقاطع بوضوح مع متطلبات الدور.' }));
+const demoRecommendations: MatchResult[] = demoJobs.slice(0, 3).map((job, i) => ({ id: `m-${i}`, jobId: job.id, candidateId: 'u-1', jobTitle: job.title, score: [92, 87, 76][i], breakdown: { skills: [94, 84, 71][i], experience: [90, 91, 74][i], education: [92, 86, 78][i], culture: [88, 85, 72][i], location: [95, 80, 76][i], salary: [90, 86, 70][i] }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), relevantExperience: demoExperiences, relevantProjects: demoProfile.projects, explanation: 'خبرتك في تصميم المنتجات والبحث النوعي تتقاطع بوضوح مع متطلبات الدور.' }));
 const demoApplications: Application[] = [{ id: 'a-1', job: demoJobs[0], candidateId: 'u-1', appliedAt: 'منذ 3 أيام', status: 'reviewing', matchScore: 92 }, { id: 'a-2', job: demoJobs[2], candidateId: 'u-1', appliedAt: 'منذ أسبوع', status: 'shortlisted', matchScore: 76 }];
 
 // ─── API wrapper with auth token storage and demo fallback ─────────────────
@@ -206,30 +206,77 @@ export async function assessCv(file: File, role: string): Promise<CvAssessment> 
   return apiRequest<CvAssessment>('/assess', { method: 'POST', body: form });
 }
 
+// ─── Match breakdown normalization ─────────────────────────────────────────
+// The matching engine answers with nested categories
+// ({ skills: { score, matched, missing }, experience: { score }, ... }) while
+// older application rows carry flat numbers. The UI renders six flat scores,
+// so collapse both shapes here — and produce `null` for anything the engine
+// did not compute rather than inventing a percentage.
+
+function scoreOf(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value && typeof value === 'object' && typeof (value as { score?: unknown }).score === 'number') {
+    return (value as { score: number }).score;
+  }
+  return null;
+}
+
+function toBreakdown(raw: unknown): MatchBreakdown | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Record<string, unknown>;
+  const breakdown: MatchBreakdown = {
+    skills: scoreOf(b.skills),
+    experience: scoreOf(b.experience),
+    education: scoreOf(b.education),
+    culture: scoreOf(b.culture),
+    location: scoreOf(b.location),
+    salary: scoreOf(b.salary),
+  };
+  return Object.values(breakdown).some((value) => value !== null) ? breakdown : null;
+}
+
+const emptyBreakdown = (): MatchBreakdown => ({ skills: null, experience: null, education: null, culture: null, location: null, salary: null });
+
+/** Extracts matched/missing skill names from a nested engine breakdown. */
+function skillNames(raw: unknown, key: 'matched' | 'missing'): string[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const list = (raw as Record<string, unknown>)[key];
+  return Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string') : [];
+}
+
+const chips = (names: string[]): Skill[] => names.map((name, index) => ({ id: `s-${name}-${index}`, name, category: 'professional' }));
+
 // ─── Recommendations & Applications ─────────────────────────────────────────
 
-export async function recommendations() {
+/** What GET /ai/recommendations answers: `[{ job: { ..., match } }]`. */
+type ApiRecommendation = {
+  job: { id: string; title: string; company: string; location: string; match?: ApiMatch };
+  match?: ApiMatch;
+};
+interface ApiMatch { overallScore?: number; explanation?: string; breakdown?: unknown; }
+
+export async function recommendations(): Promise<MatchResult[]> {
   if (hasApi()) {
-    const data = await apiRequest<{ job: { id: string; title: string; company: string; location: string }; match: { overallScore: number; breakdown: { skills: { score: number; matched: string[]; missing: string[] }; experience: { score: number }; education: { score: number } }; explanation: string } }[]>('/ai/recommendations');
-    return data.map((item) => ({
-      id: `m-${item.job.id}`,
-      jobId: item.job.id,
-      candidateId: 'u-1',
-      score: item.match.overallScore,
-      breakdown: {
-        skills: item.match.breakdown.skills.score,
-        experience: item.match.breakdown.experience.score,
-        education: item.match.breakdown.education.score,
-        projects: 85,
-        certifications: 80,
-        semantic: item.match.overallScore,
-      },
-      matchedSkills: item.match.breakdown.skills.matched.map((name: string, i: number) => ({ id: `s-${i}`, name, category: 'professional' } as import('@/types').Skill)),
-      missingSkills: item.match.breakdown.skills.missing.map((name: string, i: number) => ({ id: `s-m-${i}`, name, category: 'professional' } as import('@/types').Skill)),
-      relevantExperience: demoExperiences,
-      relevantProjects: demoProfile.projects,
-      explanation: item.match.explanation,
-    }));
+    // On the live endpoint `match` lives INSIDE `job` — reading it off the
+    // top level throws and strands this page in an error state.
+    const data = await apiRequest<ApiRecommendation[]>('/ai/recommendations');
+    return data.flatMap((item) => {
+      const match = item.match ?? item.job.match;
+      const breakdown = toBreakdown(match?.breakdown);
+      if (!match || typeof match.overallScore !== 'number' || !breakdown) return [];
+      return [{
+        id: `m-${item.job.id}`,
+        jobId: item.job.id,
+        jobTitle: item.job.title,
+        score: match.overallScore,
+        breakdown,
+        matchedSkills: chips(skillNames(match.breakdown, 'matched')),
+        missingSkills: chips(skillNames(match.breakdown, 'missing')),
+        relevantExperience: [],
+        relevantProjects: [],
+        explanation: match.explanation || '',
+      } satisfies MatchResult];
+    });
   }
   await wait();
   return demoRecommendations;
@@ -304,24 +351,50 @@ export async function deleteJob(id: string) {
   if (index >= 0) demoJobs.splice(index, 1);
 }
 
+/** What GET /applications/job/:jobId answers (application joined with its match snapshot). */
+type ApiJobApplication = {
+  id: string;
+  status: ApplicationStatus;
+  matchScore?: number | null;
+  matchBreakdown?: unknown;
+  aiExplanation?: string | null;
+  job?: Job;
+  candidate: {
+    id: string;
+    name?: string;
+    headline?: string | null;
+    location?: string | null;
+    completion?: number;
+    cvParsedData?: unknown;
+  } | null;
+};
+
 export async function candidates(jobId: string) {
   if (hasApi()) {
-    const data = await apiRequest<(Application & { candidate: { id: string; name: string; headline: string; score: number } })[]>(`/applications/job/${jobId}`);
-    return data.map((app) => ({
-      id: app.candidate.id,
-      name: app.candidate.name,
-      headline: app.candidate.headline,
-      score: app.matchScore || 0,
-      job: app.job,
-      breakdown: ((app as unknown as Record<string, unknown>)['matchBreakdown'] as unknown as MatchResult['breakdown']) || { skills: 85, experience: 80, education: 75, projects: 70, certifications: 65, semantic: 75 },
-      matchedSkills: [],
-      missingSkills: [],
-      status: app.status,
-    }));
+    const data = await apiRequest<ApiJobApplication[]>(`/applications/job/${jobId}`);
+    return data.flatMap((app) => {
+      // Orphan rows have no profile to render — skip rather than crash .slice().
+      if (!app.candidate) return [];
+      return [{
+        id: app.candidate.id,
+        name: app.candidate.name || app.candidate.headline || 'مرشح',
+        headline: app.candidate.headline || '',
+        location: app.candidate.location || '',
+        completion: app.candidate.completion ?? 0,
+        cvAnalyzed: app.candidate.cvParsedData != null,
+        score: typeof app.matchScore === 'number' ? app.matchScore : 0,
+        job: app.job,
+        breakdown: toBreakdown(app.matchBreakdown) ?? emptyBreakdown(),
+        matchedSkills: chips(skillNames(app.matchBreakdown, 'matched')),
+        missingSkills: chips(skillNames(app.matchBreakdown, 'missing')),
+        explanation: app.aiExplanation || '',
+        status: app.status,
+      }];
+    });
   }
   await wait();
   const job = demoJobs.find((item) => item.id === jobId) || demoJobs[0];
-  return [{ id: 'u-8', name: 'سارة الحربي', headline: 'Product Designer', score: 94, job, breakdown: { skills: 96, experience: 91, education: 90, projects: 94, certifications: 87, semantic: 95 }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), status: 'shortlisted' as ApplicationStatus }, { id: 'u-9', name: 'عمر الغامدي', headline: 'UX Researcher', score: 86, job, breakdown: { skills: 88, experience: 84, education: 89, projects: 80, certifications: 76, semantic: 90 }, matchedSkills: job.requiredSkills.slice(0, 1), missingSkills: job.requiredSkills.slice(1), status: 'reviewing' as ApplicationStatus }];
+  return [{ id: 'u-8', name: 'سارة الحربي', headline: 'Product Designer', location: 'الرياض، السعودية', completion: 82, cvAnalyzed: true, score: 94, job, breakdown: { skills: 96, experience: 91, education: 90, culture: 88, location: 95, salary: 85 }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), explanation: 'مهارات المرشح تغطي متطلبات الدور الأساسية مع خبرة قوية في التصميم.', status: 'shortlisted' as ApplicationStatus }, { id: 'u-9', name: 'عمر الغامدي', headline: 'UX Researcher', location: 'جدة، السعودية', completion: 74, cvAnalyzed: true, score: 86, job, breakdown: { skills: 88, experience: 84, education: 89, culture: 82, location: 70, salary: 80 }, matchedSkills: job.requiredSkills.slice(0, 1), missingSkills: job.requiredSkills.slice(1), explanation: 'ملف قوي في الأبحاث مع فجوات في بعض المهارات المطلوبة.', status: 'reviewing' as ApplicationStatus }];
 }
 
 export async function company() {

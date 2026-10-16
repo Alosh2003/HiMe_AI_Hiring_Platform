@@ -1,92 +1,15 @@
 import { Router, type IRouter } from "express";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, matchResultsTable, skillsTable, companiesTable } from "@workspace/db/schema";
+import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, skillsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { computeMatch, rankCandidates, generateExplanation, type MatchInput } from "../ai";
 import { generateMatchExplanation } from "../ai/llm";
+import { buildJobMatchInput, buildCandidateMatchInput, computeMatchSnapshot, persistMatchSnapshot } from "../ai/match-snapshot";
 import { aiRateLimiter } from "../middleware/rate-limiter";
 import { validateUuidParam, validateJobIdBody } from "../middleware/validate-params";
 
 const router: IRouter = Router();
-
-function buildJobMatchInput(
-  job: typeof jobsTable.$inferSelect,
-  jobSkills: { isRequired: boolean; skillId: number }[],
-  skillRecords: { id: number; name: string; category: string }[],
-) {
-  const skillMap = new Map(skillRecords.map((s) => [s.id, s]));
-  return {
-    title: job.title,
-    description: job.description,
-    requiredSkills: jobSkills.filter((s) => s.isRequired).map((s) => {
-      const skill = skillMap.get(s.skillId);
-      return { id: s.skillId, name: skill?.name || "", category: skill?.category || "professional" };
-    }),
-    preferredSkills: jobSkills.filter((s) => !s.isRequired).map((s) => {
-      const skill = skillMap.get(s.skillId);
-      return { id: s.skillId, name: skill?.name || "", category: skill?.category || "professional" };
-    }),
-    experienceLevel: job.experienceLevel,
-    location: job.location,
-    industry: job.industry,
-    salaryMin: job.salaryMin || undefined,
-    salaryMax: job.salaryMax || undefined,
-  };
-}
-
-function buildCandidateMatchInput(candidate: {
-  id: string;
-  headline: string | null;
-  summary: string | null;
-  yearsExperience: number | null;
-  location: string | null;
-  preferences: unknown;
-  skills: { proficiency: number; yearsExperience: number | null; skillId: number }[];
-  skillRecords: { id: number; name: string; category: string }[];
-  education: { degree: string; field: string | null; year: number | null }[];
-  experiences: { role: string; company: string; description: string | null; startDate: string | null; endDate: string | null; current: boolean }[];
-}) {
-  const prefs = (candidate.preferences || {}) as Record<string, unknown>;
-  const skillMap = new Map(candidate.skillRecords.map((s) => [s.id, s]));
-  const result: MatchInput["candidate"] = {
-    id: candidate.id,
-    headline: candidate.headline || "",
-    summary: candidate.summary || "",
-    skills: candidate.skills.map((s) => {
-      const skill = skillMap.get(s.skillId);
-      return {
-        id: s.skillId,
-        name: skill?.name || "",
-        proficiency: s.proficiency,
-        yearsExperience: s.yearsExperience || undefined,
-      };
-    }),
-    yearsExperience: candidate.yearsExperience || 0,
-    location: candidate.location || "",
-    preferences: {
-      industries: (prefs["industries"] as string[]) || [],
-      contractTypes: (prefs["contractTypes"] as string[]) || [],
-      remote: (prefs["remote"] as boolean) || false,
-      salaryMin: prefs["salaryMin"] as number | undefined,
-    },
-    education: candidate.education.map((e) => ({
-      degree: e.degree,
-      field: e.field || "",
-      year: e.year || 0,
-    })),
-    experiences: candidate.experiences.map((e) => ({
-      role: e.role,
-      company: e.company,
-      description: e.description || "",
-      startDate: e.startDate || "",
-      endDate: e.endDate || undefined,
-      current: e.current,
-    })),
-  };
-  result.id = candidate.id;
-  return result;
-}
 
 router.post("/match", authMiddleware, requireRole("company", "seeker"), validateJobIdBody, aiRateLimiter, async (req: AuthRequest, res) => {
   const jobId = req.body.jobId as string;
@@ -100,17 +23,6 @@ router.post("/match", authMiddleware, requireRole("company", "seeker"), validate
     return;
   }
 
-  const jobSkills = await db.query.jobSkillsTable.findMany({
-    where: eq(jobSkillsTable.jobId, job.id),
-  });
-
-  const skillIds = jobSkills.map((s) => s.skillId);
-  const skillRecords = skillIds.length > 0
-    ? await db.query.skillsTable.findMany({
-        where: inArray(skillsTable.id, skillIds),
-      })
-    : [];
-
   const candidate = await db.query.candidatesTable.findFirst({
     where: eq(candidatesTable.userId, req.user!.userId),
   });
@@ -120,55 +32,28 @@ router.post("/match", authMiddleware, requireRole("company", "seeker"), validate
     return;
   }
 
-  const [candidateSkills, experiences, education] = await Promise.all([
-    db.query.candidateSkillsTable.findMany({
-      where: eq(candidateSkillsTable.candidateId, candidate.id),
-    }),
-    db.query.experiencesTable.findMany({
-      where: eq(experiencesTable.candidateId, candidate.id),
-    }),
-    db.query.educationTable.findMany({
-      where: eq(educationTable.candidateId, candidate.id),
-    }),
-  ]);
-
-  const candidateInput = buildCandidateMatchInput({
-    ...candidate,
-    skills: candidateSkills,
-    skillRecords,
-    education,
-    experiences,
-  });
-
-  const matchInput: MatchInput = {
-    job: buildJobMatchInput(job, jobSkills, skillRecords),
-    candidate: { ...candidateInput, id: candidate.id },
-  };
-
-  const result = computeMatch(matchInput);
+  const snapshot = await computeMatchSnapshot(job.id, candidate.id);
+  if (!snapshot) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
 
   // Try to generate LLM explanation, fallback to rule-based
-  let explanation = result.explanation;
+  let explanation = snapshot.explanation;
   try {
     explanation = await generateMatchExplanation(
       job.title,
       candidate.headline || candidate.id,
-      result.overallScore,
-      result.breakdown,
+      snapshot.overallScore,
+      snapshot.breakdown,
     );
   } catch {
     // Use rule-based explanation as fallback
   }
 
-  await db.insert(matchResultsTable).values({
-    jobId: job.id,
-    candidateId: candidate.id,
-    overallScore: result.overallScore,
-    breakdown: result.breakdown,
-    explanation,
-  });
+  await persistMatchSnapshot(job.id, candidate.id, { ...snapshot, explanation });
 
-  res.json({ ...result, explanation });
+  res.json({ overallScore: snapshot.overallScore, breakdown: snapshot.breakdown, explanation });
 });
 
 router.get("/rank/:jobId", authMiddleware, requireRole("company"), validateUuidParam("jobId"), aiRateLimiter, async (req: AuthRequest, res) => {

@@ -69,30 +69,17 @@ const application = {
   updatedAt: new Date().toISOString(),
 };
 
-const candidateRow = {
-  id: TEST_IDS.candidate1,
-  name: 'سارة الحربي',
-  headline: 'Product Designer',
-  score: 94,
-  job,
-  breakdown: { skills: 96, experience: 91, education: 90, projects: 94, certifications: 87, semantic: 95 },
-  matchedSkills: [{ id: 1, name: 'Figma', category: 'technical' }],
-  missingSkills: [{ id: 2, name: 'Design Systems', category: 'technical' }],
-  status: 'shortlisted',
+// Match fixtures mirror the engine's real response shape (nested categories,
+// overallScore on top) exactly as api-server/src/ai/engine.ts produces it.
+const engineBreakdown = {
+  skills: { score: 94, matched: ['Figma', 'User Research'], missing: ['Design Systems'], bonus: [] },
+  experience: { score: 90, relevant: ['مصمم منتجات'] },
+  education: { score: 92, notes: 'تعليم مناسب' },
+  culture: { score: 88, notes: 'توافق جيد' },
+  location: { score: 95, notes: 'الموقع مطابق' },
+  salary: { score: 91, notes: 'ضمن النطاق' },
 };
-
-const matchResult = {
-  id: 'm-1',
-  jobId: TEST_IDS.job1,
-  candidateId: TEST_IDS.candidate1,
-  score: 92,
-  breakdown: { skills: 94, experience: 90, education: 92, projects: 88, certifications: 89, semantic: 95 },
-  matchedSkills: [{ id: 1, name: 'Figma', category: 'technical' }],
-  missingSkills: [{ id: 2, name: 'Design Systems', category: 'technical' }],
-  relevantExperience: candidate.experiences,
-  relevantProjects: candidate.projects,
-  explanation: 'خبرتك تتقاطع مع متطلبات الدور.',
-};
+const apiMatch = { overallScore: 92, breakdown: engineBreakdown, explanation: 'خبرتك تتقاطع مع متطلبات الدور.' };
 
 const authUser = { id: TEST_IDS.user1, email: 'seeker@hime.ai', name: 'ليان العتيبي', role: 'seeker' };
 const authToken = 'test-jwt-token';
@@ -255,16 +242,22 @@ export const handlers = [
   }),
   http.get(`*/api/applications/job/${TEST_IDS.job1}`, async () => {
     await delay(10);
-    // Shape must match what demo-api.candidates() maps from:
-    // application rows carrying a nested `candidate` object.
+    // Shape must match the live endpoint: application columns plus the joined
+    // candidate (named from users) and the nested match snapshot that
+    // api-server routes/applications.ts GET /job/:jobId enriches in.
     return HttpResponse.json([
       {
         ...application,
+        matchScore: 92,
+        matchBreakdown: engineBreakdown,
+        aiExplanation: apiMatch.explanation,
         candidate: {
           id: TEST_IDS.candidate1,
           name: 'سارة الحربي',
           headline: 'Product Designer',
           location: 'الرياض، السعودية',
+          completion: 82,
+          cvParsedData: { skills: ['Figma'] },
         },
       },
     ]);
@@ -277,15 +270,16 @@ export const handlers = [
   // AI
   http.get('*/api/ai/recommendations', async () => {
     await delay(10);
-    return HttpResponse.json([{ job: { id: job.id, title: job.title, company: company.name, location: job.location }, match: matchResult }]);
+    // Live shape nests match inside job (api-server routes/matching.ts).
+    return HttpResponse.json([{ job: { id: job.id, title: job.title, company: company.name, location: job.location, match: apiMatch } }]);
   }),
   http.post('*/api/ai/match', async () => {
     await delay(10);
-    return HttpResponse.json(matchResult);
+    return HttpResponse.json(apiMatch);
   }),
   http.get(`*/api/ai/rank/${TEST_IDS.job1}`, async () => {
     await delay(10);
-    return HttpResponse.json([{ candidate: { id: candidate.id, name: 'سارة الحربي', headline: 'Product Designer' }, match: matchResult }]);
+    return HttpResponse.json([{ candidate: { id: candidate.id, name: 'سارة الحربي', headline: 'Product Designer' }, match: apiMatch }]);
   }),
 
   // Admin

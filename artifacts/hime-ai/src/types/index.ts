@@ -28,6 +28,12 @@ export interface CvAssessment {
 
 export interface Company { id: string; name: string; industry: string; location: string; website: string; description: string; teamSize: string; verified: boolean; verificationStatus?: VerificationStatus; verificationNote?: string | null; }
 export interface Job { id: string; companyId: string; company: Company; title: string; description: string; industry: string; location: string; contract: ContractType; experience: ExperienceLevel; education: string; requiredSkills: Skill[]; preferredSkills: Skill[]; salary?: string; deadline: string; postedAt: string; applicants: number; status: 'active' | 'paused' | 'closed'; }
-export interface Application { id: string; job: Job; candidateId: string; appliedAt: string; status: ApplicationStatus; matchScore: number; }
-export interface MatchResult { id: string; jobId: string; candidateId?: string; score: number; breakdown: { skills: number; experience: number; education: number; projects: number; certifications: number; semantic: number; }; matchedSkills: Skill[]; missingSkills: Skill[]; relevantExperience: Experience[]; relevantProjects: Project[]; explanation: string; }
+export interface Application { id: string; job: Job; candidateId: string; appliedAt: string; status: ApplicationStatus; matchScore: number | null; }
+/**
+ * The six categories the matching engine actually computes
+ * (see api-server/src/ai/engine.ts). `null` means the engine produced no
+ * value for that category — the UI skips those rows instead of inventing one.
+ */
+export interface MatchBreakdown { skills: number | null; experience: number | null; education: number | null; culture: number | null; location: number | null; salary: number | null; }
+export interface MatchResult { id: string; jobId: string; candidateId?: string; jobTitle?: string; score: number; breakdown: MatchBreakdown; matchedSkills: Skill[]; missingSkills: Skill[]; relevantExperience: Experience[]; relevantProjects: Project[]; explanation: string; }
 export interface Notification { id: string; title: string; body: string; read: boolean; createdAt: string; }
