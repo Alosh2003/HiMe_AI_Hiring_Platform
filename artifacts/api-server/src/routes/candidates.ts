@@ -32,6 +32,18 @@ const upload = multer({
   },
 });
 
+/**
+ * The frontend's CandidateProfile contract expects a `cvStatus` the table
+ * doesn't store — derive it: parsed data means analyzed, a stored file
+ * without parsed data means the analysis failed (parsing happens inline on
+ * upload), no file means missing.
+ */
+function cvStatusOf(candidate: { cvUrl: string | null; cvParsedData: unknown }): "analyzed" | "failed" | "missing" {
+  if (candidate.cvParsedData) return "analyzed";
+  if (candidate.cvUrl) return "failed";
+  return "missing";
+}
+
 router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
   const candidate = await db.query.candidatesTable.findFirst({
     where: eq(candidatesTable.userId, req.user!.userId),
@@ -72,6 +84,7 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
 
   res.json({
     ...candidate,
+    cvStatus: cvStatusOf(candidate),
     skills: skills.map((s) => {
       const skill = skillMap.get(s.skillId);
       return {
@@ -166,7 +179,7 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
     }
   }
 
-  res.json(updated[0]);
+  res.json({ ...updated[0], cvStatus: cvStatusOf(updated[0]) });
 });
 
 router.post("/experience", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -334,6 +347,7 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
 
       res.json({
         ...updated[0],
+        cvStatus: cvStatusOf(updated[0]),
         parsed: Boolean(parsedData?.headline || parsedData?.skills?.length),
         ...(parseError ? { parseError } : {}),
         file: {

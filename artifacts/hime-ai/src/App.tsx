@@ -5,10 +5,12 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { LanguageProvider } from '@/i18n';
-import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import { AuthProvider } from '@/contexts/auth-context';
+import { Route, Redirect, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ProtectedRoute, GuestRoute } from '@/components/protected-route';
 import { DemoModeBanner } from '@/components/demo-mode-banner';
+import { LoadingState } from '@/components/app-kit';
+import { roleHome } from '@/lib/routes';
 import { AboutPage, ApplicationsPage, CandidatesPage, CompanyJobDetailPage,
   CompanyJobsPage, HomePage, JobsPage, NewJobPage, RecommendationsPage
 } from '@/pages/Pages';
@@ -28,6 +30,19 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
 }
+
+/**
+ * Sends a signed-in visitor from a bare section root (/seeker, /company,
+ * /admin) or the generic /dashboard to their own home. Signed-out visitors
+ * keep the normal ProtectedRoute behaviour (login with ?next=).
+ */
+function SectionIndex({ to }: { to: string }) {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return <LoadingState />;
+  const target = isAuthenticated ? roleHome(user?.role) : to;
+  return <Redirect to={target} />;
+}
+
 function Router() {
   return (
     <RoutedErrorBoundary>
@@ -41,6 +56,12 @@ function Router() {
         <Route path="/verify-email" component={VerifyEmailPage} />
         <Route path="/about" component={AboutPage} />
         <Route path="/assess" component={AssessPage} />
+
+        {/* Bare section roots resolve to the visitor's own dashboard. */}
+        <Route path="/dashboard"><SectionIndex to="/login" /></Route>
+        <Route path="/seeker"><SectionIndex to="/login" /></Route>
+        <Route path="/company"><SectionIndex to="/login" /></Route>
+        <Route path="/admin"><SectionIndex to="/login" /></Route>
 
         {/* Seeker routes */}
         <Route path="/seeker/dashboard">

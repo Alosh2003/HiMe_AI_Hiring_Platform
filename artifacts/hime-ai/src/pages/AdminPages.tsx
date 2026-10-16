@@ -13,6 +13,7 @@ import type { AdminCompany, VerificationStatus } from '@/services/api/demo-api';
 import { FeedbackState, LoadingState, PageHeader, ScoreRing } from '@/components/app-kit';
 import { RoleShell } from '@/components/role-shell';
 import { WorkflowGuide } from '@/components/workflow-guide';
+import { formatDate } from '@/lib/format';
 import type { ApplicationStatus } from '@/types';
 
 const statusLabels: Record<ApplicationStatus, string> = {
@@ -235,18 +236,31 @@ export function AdminCompaniesPage() {
 export function AdminCandidatesPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'suspended'>('all');
+  // Every seeker account from GET /admin/candidates — this page previously
+  // rendered three hardcoded rows and invented totals (1,248 / 1,043 / 384).
+  const { data, loading, error, reload } = useDemo(demoApi.adminCandidates, []);
 
-  const candidates = [
-    { id: 'u-1', name: 'ليان العتيبي', email: 'layan@example.com', headline: 'مصمم منتجات', completion: 82, cvStatus: 'محللة', applications: 2, status: 'active' as const },
-    { id: 'u-8', name: 'سارة الحربي', email: 'sara@example.com', headline: 'Product Designer', completion: 89, cvStatus: 'محللة', applications: 4, status: 'active' as const },
-    { id: 'u-9', name: 'عمر الغامدي', email: 'omar@example.com', headline: 'UX Researcher', completion: 73, cvStatus: 'محللة', applications: 1, status: 'active' as const },
-  ];
+  if (loading) return <RoleShell role="admin"><LoadingState /></RoleShell>;
+  if (error || !data) return <RoleShell role="admin"><FeedbackState error={error} retry={reload} /></RoleShell>;
 
-  const filtered = candidates.filter((c) => {
+  const rows = data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    email: c.email,
+    headline: c.headline || '—',
+    completion: c.completion,
+    cvStatus: c.cvStatus === 'analyzed' ? 'محللة' : 'بانتظار الرفع',
+    status: (c.isActive ? 'active' : 'suspended') as 'active' | 'suspended',
+    applications: c.applications,
+  }));
+
+  const filtered = rows.filter((c) => {
     const matchSearch = !search || c.name.includes(search) || c.headline.includes(search);
     const matchFilter = filter === 'all' || c.status === filter;
     return matchSearch && matchFilter;
   });
+  const analyzedCount = data.filter((c) => c.cvStatus === 'analyzed').length;
+  const activeCount = data.filter((c) => c.isActive).length;
 
   return (
     <RoleShell role="admin">
@@ -260,9 +274,9 @@ export function AdminCandidatesPage() {
       {/* Stats */}
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         {([
-          ['إجمالي الباحثين', '1,248', Building2],
-          ['ملفات محللة', '1,043', FileText],
-          ['نشطون هذا الأسبوع', '384', Users],
+          ['إجمالي الباحثين', data.length.toLocaleString(), Building2],
+          ['ملفات محللة', analyzedCount.toLocaleString(), FileText],
+          ['حسابات نشطة', activeCount.toLocaleString(), Users],
         ] as [string, string, React.ComponentType<{ className?: string }>][]).map(([label, value, Icon]) => (
           <Card key={label as string}>
             <CardContent className="flex items-center gap-4 p-5">
@@ -479,11 +493,19 @@ export function AdminJobsPage() {
 }
 
 export function AdminApplicationsPage() {
-  const { data, loading, error, reload } = useDemo(demoApi.applications, []);
+  // GET /admin/applications (platform-wide, joined with candidate names).
+  // The old version called the seeker-scoped /applications/my — an admin
+  // token got a 403, so the page only ever worked in demo mode.
+  const { data, loading, error, reload } = useDemo(demoApi.adminApplications, []);
   const [tab, setTab] = useState<'all' | 'reports'>('all');
 
   if (loading) return <RoleShell role="admin"><LoadingState /></RoleShell>;
   if (error || !data) return <RoleShell role="admin"><FeedbackState error={error} retry={reload} /></RoleShell>;
+
+  // Counts derived from the loaded rows — the old cards were hardcoded.
+  const reviewingCount = data.filter((item) => item.status === 'reviewing').length;
+  const shortlistedCount = data.filter((item) => item.status === 'shortlisted').length;
+  const interviewCount = data.filter((item) => item.status === 'interview').length;
 
   return (
     <RoleShell role="admin">
@@ -503,10 +525,10 @@ export function AdminApplicationsPage() {
       {/* Stats */}
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         {[
-          ['إجمالي الطلبات', 3820],
-          ['قيد المراجعة', 1240],
-          ['القائمة المختصرة', 384],
-          ['بلاغات مفتوحة', 2],
+          ['إجمالي الطلبات', data.length],
+          ['قيد المراجعة', reviewingCount],
+          ['القائمة المختصرة', shortlistedCount],
+          ['مقابلات', interviewCount],
         ].map(([label, value]) => (
           <Card key={label as string}>
             <CardContent className="p-5">
@@ -537,8 +559,8 @@ export function AdminApplicationsPage() {
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
             <AlertCircle className="mx-auto mb-3 h-8 w-8" />
-            <p className="font-semibold">2 بلاغ مفتوح</p>
-            <p className="mt-2 text-sm">بلاغات تحتاج مراجعة يدوية من فريق الإدارة.</p>
+            <p className="font-semibold">لا توجد بلاغات مفتوحة</p>
+            <p className="mt-2 text-sm">إذا أُضيف نظام البلاغات مستقبلاً، ستظهر هنا للمراجعة اليدوية.</p>
           </CardContent>
         </Card>
       ) : (
@@ -558,11 +580,11 @@ export function AdminApplicationsPage() {
                     <td className="px-5 py-4 font-semibold">
                       <Link href={`/jobs/${item.job.id}`} className="hover:text-primary">{item.job.title}</Link>
                     </td>
-                    <td className="px-5 py-4 text-muted-foreground">ليان العتيبي</td>
+                    <td className="px-5 py-4 text-muted-foreground">{item.candidateName}</td>
                     <td className="px-5 py-4">
-                      <span className="font-bold text-primary">{item.matchScore}%</span>
+                      <span className="font-bold text-primary">{item.matchScore != null ? `${item.matchScore}%` : '—'}</span>
                     </td>
-                    <td className="px-5 py-4 text-muted-foreground">{item.appliedAt}</td>
+                    <td className="px-5 py-4 text-muted-foreground">{formatDate(item.appliedAt)}</td>
                     <td className="px-5 py-4">
                       <span className="rounded-full bg-accent/15 px-2.5 py-1 text-[10px] font-semibold text-accent-foreground">
                         {statusLabels[item.status]}

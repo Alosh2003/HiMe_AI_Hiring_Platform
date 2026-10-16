@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { companiesTable, jobsTable, usersTable, applicationsTable, candidatesTable } from "@workspace/db/schema";
@@ -34,7 +34,9 @@ async function notifyAndEmailCompany(
 
 router.get("/stats", authMiddleware, requireRole("admin"), async (_req, res) => {
   const [candidatesCount, companiesCount, jobsCount, applicationsCount] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(usersTable),
+    // "Candidates" means seeker accounts — counting every user inflated the
+    // dashboard with company and admin logins.
+    db.select({ count: sql<number>`count(*)` }).from(usersTable).where(eq(usersTable.role, "seeker")),
     db.select({ count: sql<number>`count(*)` }).from(companiesTable),
     db.select({ count: sql<number>`count(*)` }).from(jobsTable),
     db.select({ count: sql<number>`count(*)` }).from(applicationsTable),
@@ -45,6 +47,68 @@ router.get("/stats", authMiddleware, requireRole("admin"), async (_req, res) => 
     companies: Number(companiesCount[0]?.count || 0),
     jobs: Number(jobsCount[0]?.count || 0),
     applications: Number(applicationsCount[0]?.count || 0),
+  });
+});
+
+/**
+ * Every seeker account with profile health, for the admin candidates table.
+ * `completion` is read from the stored column (rewritten on every profile
+ * write) rather than recomputed per row.
+ */
+router.get("/candidates", authMiddleware, requireRole("admin"), async (req, res) => {
+  const page = z.coerce.number().int().min(1).catch(1).parse(req.query.page);
+  const limit = z.coerce.number().int().min(1).max(200).catch(50).parse(req.query.limit);
+  const search = z.string().trim().max(200).catch("").parse(req.query.search);
+
+  const seekerRole = eq(usersTable.role, "seeker");
+  const where = search
+    ? and(seekerRole, or(ilike(usersTable.name, `%${search}%`), ilike(usersTable.email, `%${search}%`)))
+    : seekerRole;
+
+  const [users, totalRows] = await Promise.all([
+    db.query.usersTable.findMany({
+      where,
+      orderBy: desc(usersTable.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    }),
+    db.select({ value: count() }).from(usersTable).where(where),
+  ]);
+
+  const userIds = users.map((u) => u.id);
+  const candidates = userIds.length > 0
+    ? await db.query.candidatesTable.findMany({ where: inArray(candidatesTable.userId, userIds) })
+    : [];
+  const candidateIds = candidates.map((c) => c.id);
+  const appCounts = candidateIds.length > 0
+    ? await db
+        .select({ candidateId: applicationsTable.candidateId, value: count() })
+        .from(applicationsTable)
+        .where(inArray(applicationsTable.candidateId, candidateIds))
+        .groupBy(applicationsTable.candidateId)
+    : [];
+
+  const candidateByUser = new Map(candidates.map((c) => [c.userId, c]));
+  const appsByCandidate = new Map(appCounts.map((r) => [r.candidateId, Number(r.value || 0)]));
+
+  const total = Number(totalRows[0]?.value || 0);
+  res.json({
+    items: users.map((u) => {
+      const candidate = candidateByUser.get(u.id);
+      return {
+        id: u.id,
+        candidateId: candidate?.id ?? null,
+        name: u.name,
+        email: u.email,
+        headline: candidate?.headline ?? null,
+        completion: candidate?.completion ?? 0,
+        cvStatus: candidate?.cvParsedData ? "analyzed" : "pending",
+        applications: candidate ? appsByCandidate.get(candidate.id) ?? 0 : 0,
+        isActive: u.isActive,
+        createdAt: u.createdAt,
+      };
+    }),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   });
 });
 

@@ -13,6 +13,7 @@ import * as demoApi from '@/services/api/demo-api';
 import { useLanguage } from '@/i18n';
 import { useDemo } from '@/hooks/use-demo';
 import { RoleShell } from '@/components/role-shell';
+import { formatDate } from '@/lib/format';
 import {
   EmptySearch, FeedbackState, Field, JobCard, LoadingState,
   PageHeader, PublicNav, ScoreBreakdown, ScoreRing
@@ -402,10 +403,10 @@ export function ApplicationsPage() {
               <div key={item.id} className="grid gap-3 border-b border-border px-5 py-5 last:border-0 md:grid-cols-[1.6fr_1fr_.8fr_.7fr] md:items-center md:px-6">
                 <div>
                   <Link href={`/jobs/${item.job.id}`} className="text-sm font-bold hover:text-primary" data-testid={`link-application-job-${item.id}`}>{item.job.title}</Link>
-                  <p className="mt-1 text-xs text-muted-foreground md:hidden">{item.job.company.name} · {item.appliedAt}</p>
+                  <p className="mt-1 text-xs text-muted-foreground md:hidden">{item.job.company.name} · {formatDate(item.appliedAt)}</p>
                 </div>
                 <p className="hidden text-xs text-muted-foreground md:block">{item.job.company.name}</p>
-                <p className="hidden text-xs text-muted-foreground md:block">{item.appliedAt}</p>
+                <p className="hidden text-xs text-muted-foreground md:block">{formatDate(item.appliedAt)}</p>
                 <div className="flex items-center gap-2">
                   <span className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusColors[item.status]}`} data-testid={`status-application-${item.id}`}>
                     {statusLabels[item.status]}

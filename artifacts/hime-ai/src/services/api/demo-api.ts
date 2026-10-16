@@ -1,4 +1,5 @@
 import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchBreakdown, MatchResult, Skill, User, VerificationStatus } from '@/types';
+import { formatRelative, formatSalary } from '@/lib/format';
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
 
@@ -21,6 +22,43 @@ function markDemoFallback(): void {
   window.dispatchEvent(new CustomEvent('hime-demo-mode'));
 }
 const skills = (names: string[]): import('@/types').Skill[] => names.map((name, index) => ({ id: `${name.toLowerCase().replaceAll(' ', '-')}-${index}`, name, category: 'professional' }));
+
+// ─── API job -> UI job normalization ──────────────────────────────────────
+// The API answers with `contractType`/`experienceLevel`/`salaryMin`/
+// `salaryMax`/`applicantsCount`/`createdAt`, but every component reads
+// `contract`/`experience`/`salary`/`applicants`/`postedAt`. Without this
+// bridge, job cards render blank chips, admin stats add up `undefined`
+// (NaN), and "راتب يحدد عند المقابلة" appears for jobs that DO have a
+// salary. Applied to every job that enters the UI from the network.
+type RawJob = Record<string, unknown>;
+const asNum = (value: unknown): number | undefined =>
+  (typeof value === 'number' && Number.isFinite(value)) ? value : undefined;
+
+export function mapApiJob(raw: RawJob | Job | null | undefined): Job | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const job = raw as RawJob;
+  const salaryMin = asNum(job.salaryMin);
+  const salaryMax = asNum(job.salaryMax);
+  const rawCompany = job.company;
+  return {
+    ...(job as unknown as Job),
+    company: (typeof rawCompany === 'string'
+      ? { id: '', name: rawCompany }
+      : rawCompany ?? { id: '', name: '' }) as Company,
+    contract: (job.contract ?? job.contractType ?? 'full-time') as Job['contract'],
+    experience: (job.experience ?? job.experienceLevel ?? 'mid') as Job['experience'],
+    education: typeof job.education === 'string' ? job.education : '',
+    salary: typeof job.salary === 'string' ? job.salary : formatSalary(salaryMin, salaryMax),
+    applicants: asNum(job.applicants) ?? asNum(job.applicantsCount) ?? 0,
+    postedAt: typeof job.postedAt === 'string' ? job.postedAt : formatRelative(job.createdAt as string | undefined),
+  };
+}
+
+/** Maps an application row, normalizing its nested job when present. */
+function mapApiApplication(raw: Record<string, unknown>): Application {
+  const job = raw.job ? mapApiJob(raw.job as RawJob) : undefined;
+  return { ...(raw as unknown as Application), ...(job ? { job } : {}) } as Application;
+}
 let demoCompany: Company = { id: 'c-1', name: 'مِداد للتقنية', industry: 'تقنية المعلومات', location: 'الرياض، السعودية', website: 'medad.example', description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً وإنسانية.', teamSize: '51–200', verified: true };
 let demoCompanies: Company[] = [demoCompany, { id: 'c-2', name: 'سِراج المالية', industry: 'التقنية المالية', location: 'دبي، الإمارات', website: 'siraj.example', description: 'منصة مالية رقمية للجيل القادم.', teamSize: '11–50', verified: true }, { id: 'c-3', name: 'أثر للاستشارات', industry: 'الاستشارات', location: 'جدة، السعودية', website: 'athar.example', description: 'نحو قرارات أعمال أفضل في المنطقة.', teamSize: '51–200', verified: false }];
 const makeJob = (id: string, title: string, c: Company, extra: Partial<Job> = {}): Job => ({ id, companyId: c.id, company: c, title, description: 'نبحث عن شخص شغوف يبني منتجات مؤثرة ويحوّل المسائل المعقدة إلى تجارب بسيطة. ستعمل مع فريق متعدد التخصصات في بيئة تتعلم فيها كل يوم.', industry: c.industry, location: c.location, contract: 'full-time', experience: 'mid', education: 'بكالوريوس أو خبرة معادلة', requiredSkills: skills(['Product strategy', 'Research', 'Communication']), preferredSkills: skills(['Analytics', 'Figma']), salary: '18,000 – 24,000 ر.س', deadline: '2025-06-30', postedAt: 'منذ يومين', applicants: 24, status: 'active', ...extra });
@@ -124,7 +162,8 @@ export async function listJobs(filters?: { search?: string; location?: string; i
     const query = params.toString();
     // GET /api/jobs returns { jobs, pagination }; every caller wants the list.
     const res = await apiRequest<Job[] | { jobs: Job[] }>(`/jobs${query ? `?${query}` : ''}`);
-    return Array.isArray(res) ? res : res.jobs ?? [];
+    const jobs = Array.isArray(res) ? res : res.jobs ?? [];
+    return jobs.flatMap((job) => mapApiJob(job as unknown as RawJob) ?? []);
   }
   await wait();
   const q = filters?.search?.toLowerCase() || '';
@@ -135,7 +174,10 @@ export async function listJobs(filters?: { search?: string; location?: string; i
 }
 
 export async function getJob(id: string) {
-  if (hasApi()) return apiRequest<Job>(`/jobs/${id}`);
+  if (hasApi()) {
+    const job = await apiRequest<Job>(`/jobs/${id}`);
+    return mapApiJob(job as unknown as RawJob);
+  }
   await wait();
   return demoJobs.find((job) => job.id === id) || null;
 }
@@ -283,13 +325,19 @@ export async function recommendations(): Promise<MatchResult[]> {
 }
 
 export async function applications() {
-  if (hasApi()) return apiRequest<Application[]>('/applications/my');
+  if (hasApi()) {
+    const data = await apiRequest<Application[]>('/applications/my');
+    return (Array.isArray(data) ? data : []).map((app) => mapApiApplication(app as unknown as Record<string, unknown>));
+  }
   await wait();
   return demoApplications;
 }
 
 export async function apply(jobId: string) {
-  if (hasApi()) return apiRequest<Application>('/applications', { method: 'POST', body: JSON.stringify({ jobId }) });
+  if (hasApi()) {
+    const app = await apiRequest<Application>('/applications', { method: 'POST', body: JSON.stringify({ jobId }) });
+    return mapApiApplication(app as unknown as Record<string, unknown>);
+  }
   await wait();
   const job = demoJobs.find((item) => item.id === jobId);
   if (!job) throw new Error('Job not found');
@@ -304,7 +352,8 @@ export async function getCompanyJobs() {
   if (hasApi()) {
     // /companies/me/jobs resolves the company from the session, saving a
     // round trip and avoiding a 404 when the id isn't known up front.
-    return apiRequest<Job[]>('/companies/me/jobs');
+    const data = await apiRequest<Job[]>('/companies/me/jobs');
+    return (Array.isArray(data) ? data : []).flatMap((job) => mapApiJob(job as unknown as RawJob) ?? []);
   }
   await wait();
   return demoJobs.filter((job) => job.companyId === demoCompany.id);
@@ -312,7 +361,7 @@ export async function getCompanyJobs() {
 
 export async function createJob(input: Partial<Job>) {
   if (hasApi()) {
-    return apiRequest<Job>('/jobs', {
+    const job = await apiRequest<Job>('/jobs', {
       method: 'POST',
       body: JSON.stringify({
         title: input.title,
@@ -328,6 +377,7 @@ export async function createJob(input: Partial<Job>) {
         preferredSkills: input.preferredSkills || [],
       }),
     });
+    return mapApiJob(job as unknown as RawJob)!;
   }
   await wait();
   const newJob = makeJob(`j-${Date.now()}`, input.title || 'وظيفة جديدة', demoCompany, input);
@@ -336,7 +386,10 @@ export async function createJob(input: Partial<Job>) {
 }
 
 export async function updateJob(id: string, input: Partial<Job>) {
-  if (hasApi()) return apiRequest<Job>(`/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  if (hasApi()) {
+    const job = await apiRequest<Job>(`/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+    return mapApiJob(job as unknown as RawJob)!;
+  }
   await wait();
   const found = demoJobs.find((job) => job.id === id);
   if (!found) throw new Error('Job not found');
@@ -383,7 +436,7 @@ export async function candidates(jobId: string) {
         completion: app.candidate.completion ?? 0,
         cvAnalyzed: app.candidate.cvParsedData != null,
         score: typeof app.matchScore === 'number' ? app.matchScore : 0,
-        job: app.job,
+        job: app.job ? mapApiJob(app.job as unknown as RawJob) ?? undefined : undefined,
         breakdown: toBreakdown(app.matchBreakdown) ?? emptyBreakdown(),
         matchedSkills: chips(skillNames(app.matchBreakdown, 'matched')),
         missingSkills: chips(skillNames(app.matchBreakdown, 'missing')),
@@ -493,6 +546,60 @@ export async function rejectCompany(id: string, reason: string) {
   await wait(250);
   demoCompanies = demoCompanies.map((c) => c.id === id ? { ...c, verificationStatus: 'rejected' as const, verificationNote: reason } : c);
   return demoCompanies.find((c) => c.id === id)!;
+}
+
+// ─── Platform-wide applications & seekers (admin) ──────────────────────────
+
+/** Application joined with its job and the candidate's user (real name). */
+export interface AdminApplication extends Application {
+  candidateName: string;
+}
+
+/**
+ * GET /admin/applications answers `{ items, pagination }` with the candidate
+ * joined through users for the real name. The previous version called
+ * /applications/my (seeker-scoped -> 403 for an admin) and rendered a
+ * hardcoded candidate name.
+ */
+export async function adminApplications(): Promise<AdminApplication[]> {
+  if (hasApi()) {
+    const res = await apiRequest<AdminApplication[] | { items: AdminApplication[] }>('/admin/applications');
+    const items = Array.isArray(res) ? res : res.items ?? [];
+    return items.map((item) => {
+      const mapped = mapApiApplication(item as unknown as Record<string, unknown>) as AdminApplication;
+      const candidate = (item as unknown as { candidate?: { name?: string; headline?: string | null; user?: { name?: string } | null } }).candidate;
+      return {
+        ...mapped,
+        candidateName: candidate?.user?.name || candidate?.name || candidate?.headline || '—',
+      };
+    });
+  }
+  await wait();
+  return demoApplications.map((item) => ({ ...item, candidateName: 'ليان العتيبي' }));
+}
+
+export interface AdminCandidate {
+  id: string;
+  candidateId: string | null;
+  name: string;
+  email: string;
+  headline: string | null;
+  completion: number;
+  cvStatus: 'analyzed' | 'pending';
+  applications: number;
+  isActive: boolean;
+}
+
+/** GET /admin/candidates — every seeker account with profile health. */
+export async function adminCandidates(): Promise<AdminCandidate[]> {
+  if (hasApi()) {
+    const res = await apiRequest<AdminCandidate[] | { items: AdminCandidate[] }>('/admin/candidates');
+    return Array.isArray(res) ? res : res.items ?? [];
+  }
+  await wait();
+  return [
+    { id: 'u-1', candidateId: 'p-1', name: 'ليان العتيبي', email: 'layan@example.com', headline: demoProfile.headline, completion: demoProfile.completion, cvStatus: 'analyzed', applications: demoApplications.length, isActive: true },
+  ];
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────

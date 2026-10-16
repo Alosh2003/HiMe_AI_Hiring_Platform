@@ -50,6 +50,9 @@ const candidate = {
   location: 'الرياض، السعودية',
   yearsExperience: 4,
   completion: 82,
+  // The live route derives these from the stored CV row.
+  cvUrl: '/files/cv-sample.pdf',
+  cvStatus: 'analyzed',
   skills: [{ id: 1, name: 'Figma', category: 'technical', proficiency: 4, yearsExperience: 3 }],
   experiences: [{ id: 'x1', role: 'مصمم منتجات', company: 'ستوديو', location: 'الرياض', startDate: '2021', current: true }],
   education: [{ id: 'ed1', degree: 'بكالوريوس', field: 'تصميم', institution: 'جامعة', year: 2020 }],
@@ -290,6 +293,16 @@ export const handlers = [
   http.get('*/api/admin/applications', async () => {
     await delay(10);
     return HttpResponse.json([application]);
+  }),
+  http.get('*/api/admin/candidates', async () => {
+    await delay(10);
+    // Mirrors the live endpoint: seeker accounts joined with their profile.
+    return HttpResponse.json({
+      items: [
+        { id: 'cand-1', candidateId: 'p-1', name: 'سارة الحربي', email: 'sara@example.com', headline: 'Product Designer', completion: 82, cvStatus: 'analyzed', applications: 3, isActive: true },
+      ],
+      pagination: { page: 1, limit: 50, total: 1, totalPages: 1 },
+    });
   }),
   http.get('*/api/healthz', async () => {
     await delay(5);
