@@ -972,3 +972,61 @@ describe('job posting gate', () => {
     expect(await screen.findByTestId('card-job-post-blocked', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });
+
+// ─── AI job draft ────────────────────────────────────────────────────────────
+
+describe('AI job draft', () => {
+  it('fills the whole wizard from a pasted ad', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/company/jobs/new');
+
+    await screen.findByTestId('card-ai-draft', {}, { timeout: 3000 });
+    fireEvent.change(screen.getByTestId('textarea-job-ad'), {
+      target: { value: 'We are hiring a Senior Data Analyst with SQL and Power BI.' },
+    });
+    fireEvent.click(screen.getByTestId('button-ai-draft'));
+
+    // The extracted draft lands in step 1 and the status says so.
+    expect(await screen.findByTestId('status-ai-draft', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('محلل بيانات أول')).toBeInTheDocument();
+
+    // Step 2 carries the extracted skills…
+    fireEvent.click(screen.getByTestId('button-next-step'));
+    expect(await screen.findByText('SQL', {}, { timeout: 3000 })).toBeInTheDocument();
+
+    // …and step 3 the salary, plus a deadline that is never in the past.
+    fireEvent.click(screen.getByTestId('button-next-step'));
+    expect(await screen.findByDisplayValue('15000', {}, { timeout: 3000 })).toBeInTheDocument();
+    const deadline = screen.getByTestId('input-job-deadline') as HTMLInputElement;
+    const today = new Date().toISOString().slice(0, 10);
+    expect(deadline.value >= today).toBe(true);
+    expect(deadline).toHaveAttribute('min', today);
+  });
+
+  it('reports an unreachable AI instead of silently doing nothing', async () => {
+    setRole('company');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.post('*/api/ai/parse-job-ad', async () => {
+        await delay(10);
+        return HttpResponse.json(
+          {
+            error: 'AI draft unavailable',
+            message: 'تعذر الوصول إلى محرك الذكاء الاصطناعي الآن. أكمل الحقول يدوياً أو حاول لاحقاً.',
+          },
+          { status: 502 },
+        );
+      }),
+    );
+    renderAt('/company/jobs/new');
+
+    await screen.findByTestId('card-ai-draft', {}, { timeout: 3000 });
+    fireEvent.change(screen.getByTestId('input-ai-position'), { target: { value: 'محلل بيانات' } });
+    fireEvent.click(screen.getByTestId('button-ai-draft'));
+
+    const error = await screen.findByTestId('error-ai-draft', {}, { timeout: 5000 });
+    expect(error).toHaveTextContent('محرك الذكاء الاصطناعي');
+    expect(screen.queryByTestId('status-ai-draft')).not.toBeInTheDocument();
+  });
+});

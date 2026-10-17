@@ -1,13 +1,15 @@
 import { Router, type IRouter } from "express";
 import { desc, eq, inArray, sql } from "drizzle-orm";
+import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, skillsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { computeMatch, rankCandidates, generateExplanation, type MatchInput } from "../ai";
-import { generateMatchExplanation } from "../ai/llm";
+import { generateMatchExplanation, parseJobAdWithLLM } from "../ai/llm";
 import { buildJobMatchInput, buildCandidateMatchInput, computeMatchSnapshot, persistMatchSnapshot } from "../ai/match-snapshot";
 import { aiRateLimiter } from "../middleware/rate-limiter";
 import { validateUuidParam, validateJobIdBody } from "../middleware/validate-params";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -126,6 +128,41 @@ router.get("/rank/:jobId", authMiddleware, requireRole("company"), validateUuidP
       match: result,
     })),
   );
+});
+
+// ─── Job-ad drafting ─────────────────────────────────────────────────────
+
+const parseJobAdSchema = z.object({
+  adText: z.string().max(20_000).optional(),
+  position: z.string().max(200).optional(),
+  experienceYears: z.number().int().min(0).max(50).optional(),
+}).refine((data) => Boolean(data.adText?.trim() || data.position?.trim()), {
+  message: "Provide the pasted ad text or a position title",
+});
+
+/**
+ * Turns a pasted job ad (or a position title + wanted experience) into a
+ * fill-in draft for the company's posting wizard. The company reviews and
+ * edits every field before publishing — this endpoint writes nothing.
+ */
+router.post("/parse-job-ad", authMiddleware, requireRole("company"), aiRateLimiter, async (req: AuthRequest, res) => {
+  const parsed = parseJobAdSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const draft = await parseJobAdWithLLM(parsed.data);
+    res.json(draft);
+  } catch (err) {
+    logger.error({ err }, "parse-job-ad failed");
+    // Honest failure: the company can always fall back to typing the form.
+    res.status(502).json({
+      error: "AI draft unavailable",
+      message: "تعذر الوصول إلى محرك الذكاء الاصطناعي الآن. أكمل الحقول يدوياً أو حاول لاحقاً.",
+    });
+  }
 });
 
 router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimiter, async (req: AuthRequest, res) => {

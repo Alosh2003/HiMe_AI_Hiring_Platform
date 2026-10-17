@@ -285,6 +285,22 @@ export const handlers = [
     await delay(10);
     return HttpResponse.json(apiMatch);
   }),
+  // AI job-ad drafting (company posting wizard)
+  http.post('*/api/ai/parse-job-ad', async () => {
+    await delay(10);
+    return HttpResponse.json({
+      title: 'محلل بيانات أول',
+      description: 'تحليل مجموعات البيانات وبناء لوحات معلومات لدعم قرارات العمل، وتوثيق مناهج التحليل لضمان جودة البيانات.',
+      industry: 'تقنية المعلومات',
+      location: 'الرياض، السعودية',
+      contractType: 'full-time',
+      experienceLevel: 'mid',
+      salaryMin: 15000,
+      salaryMax: 20000,
+      requiredSkills: ['SQL', 'Python', 'Power BI', 'Excel', 'ETL', 'Data Modeling', 'Statistics'],
+      preferredSkills: ['Airflow'],
+    });
+  }),
   http.get(`*/api/ai/rank/${TEST_IDS.job1}`, async () => {
     await delay(10);
     return HttpResponse.json([{ candidate: { id: candidate.id, name: 'سارة الحربي', headline: 'Product Designer' }, match: apiMatch }]);

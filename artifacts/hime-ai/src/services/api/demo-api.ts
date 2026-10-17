@@ -359,6 +359,56 @@ export async function getCompanyJobs() {
   return demoJobs.filter((job) => job.companyId === demoCompany.id);
 }
 
+// ─── AI job draft ────────────────────────────────────────────────────────
+
+/** Structured draft the posting wizard fills from a pasted ad or a role hint. */
+export interface AiJobDraft {
+  title: string;
+  description: string;
+  industry: string;
+  location: string;
+  contractType: 'full-time' | 'part-time' | 'contract' | 'internship';
+  experienceLevel: 'entry' | 'mid' | 'senior' | 'lead';
+  salaryMin: number | null;
+  salaryMax: number | null;
+  requiredSkills: string[];
+  preferredSkills: string[];
+}
+
+/**
+ * Asks the AI to turn a pasted job advertisement (or just a position title
+ * plus wanted experience) into a fill-in draft for the posting wizard.
+ */
+export async function parseJobAd(input: { adText?: string; position?: string; experienceYears?: number }): Promise<AiJobDraft> {
+  if (hasApi()) return apiRequest<AiJobDraft>('/ai/parse-job-ad', { method: 'POST', body: JSON.stringify(input) });
+  await wait();
+  // Offline demo: a clearly template draft built from whatever was provided.
+  const title = input.position?.trim() || input.adText?.trim().split('\n')[0]?.slice(0, 80) || 'دور جديد';
+  const years = input.experienceYears;
+  return {
+    title,
+    description: `${title}${years != null ? ` بخبرة ${years} سنوات` : ''}. (مسودة تجريبية — في الوضع المتصل يستخرج النظام الحقول من إعلانك.)`,
+    industry: 'تقنية المعلومات',
+    location: 'الرياض، السعودية',
+    contractType: 'full-time',
+    experienceLevel: years == null ? 'mid' : years <= 2 ? 'entry' : years <= 5 ? 'mid' : 'senior',
+    salaryMin: null,
+    salaryMax: null,
+    requiredSkills: [],
+    preferredSkills: [],
+  };
+}
+
+/**
+ * The salary field is free text ("18,000", "10000 ر.س"); publish only needs
+ * the number. Number("18,000") is NaN — strip separators instead so any
+ * human phrasing survives the round trip.
+ */
+function salaryToNumber(value?: string): number | undefined {
+  const digits = String(value ?? '').replace(/[^\d]/g, '');
+  return digits ? Number(digits) : undefined;
+}
+
 export async function createJob(input: Partial<Job>) {
   if (hasApi()) {
     const job = await apiRequest<Job>('/jobs', {
@@ -370,7 +420,7 @@ export async function createJob(input: Partial<Job>) {
         location: input.location,
         contractType: input.contract,
         experienceLevel: input.experience,
-        salaryMin: input.salary ? Number(input.salary) : undefined,
+        salaryMin: salaryToNumber(input.salary),
         salaryMax: undefined,
         deadline: input.deadline,
         requiredSkills: input.requiredSkills || [],

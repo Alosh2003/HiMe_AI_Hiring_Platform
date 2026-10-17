@@ -528,6 +528,10 @@ export function CompanyJobsPage() {
 }
 
 // ─── New Job Page (Multi-Step Form) ───────────────────────────────────────────
+/** Today (or today+N) as the yyyy-mm-dd an <input type="date"> speaks. */
+const isoDate = (daysFromNow = 0) =>
+  new Date(Date.now() + daysFromNow * 86_400_000).toISOString().slice(0, 10);
+
 export function NewJobPage() {
   const [, setLocation] = useLocation();
   // Posting requires a verified company. The gate below explains that before
@@ -540,18 +544,64 @@ export function NewJobPage() {
     description: '',
     industry: 'تقنية المعلومات',
     location: 'الرياض، السعودية',
-    contract: 'full-time' as const,
-    experience: 'mid' as const,
-    deadline: '2025-07-30',
+    contract: 'full-time' as 'full-time' | 'part-time' | 'contract' | 'internship',
+    experience: 'mid' as 'entry' | 'mid' | 'senior' | 'lead',
+    // Two weeks out by default — a past date can never be the pre-filled value.
+    deadline: isoDate(14),
     salary: '',
     skills: [] as string[],
     newSkill: '',
   });
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  // AI draft: paste an ad (or name a role) and the wizard fills for review.
+  const [aiAd, setAiAd] = useState('');
+  const [aiPosition, setAiPosition] = useState('');
+  const [aiYears, setAiYears] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiDone, setAiDone] = useState(false);
 
   const update = <K extends keyof typeof form>(key: K, value: typeof form[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const runAiDraft = async () => {
+    setAiBusy(true);
+    setAiError('');
+    setAiDone(false);
+    try {
+      const years = Number(aiYears);
+      const draft = await demoApi.parseJobAd({
+        adText: aiAd.trim() || undefined,
+        position: aiPosition.trim() || undefined,
+        experienceYears: aiYears.trim() !== '' && Number.isFinite(years) ? years : undefined,
+      });
+      setForm((prev) => ({
+        ...prev,
+        title: draft.title || prev.title,
+        description: draft.description || prev.description,
+        industry: draft.industry || prev.industry,
+        location: draft.location || prev.location,
+        contract: draft.contractType || prev.contract,
+        experience: draft.experienceLevel || prev.experience,
+        salary: draft.salaryMin != null ? String(draft.salaryMin) : prev.salary,
+        skills: draft.requiredSkills.length ? draft.requiredSkills : prev.skills,
+      }));
+      setStep(1);
+      setAiDone(true);
+    } catch (err) {
+      // Honest failure — the company always sees why the draft did not arrive.
+      setAiError(
+        err instanceof demoApi.ApiError && err.detail
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : 'تعذر الوصول إلى الذكاء الاصطناعي الآن — أكمل الحقول يدوياً.',
+      );
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const addSkill = () => {
     if (!form.newSkill.trim()) return;
@@ -583,6 +633,9 @@ export function NewJobPage() {
       // of hanging on the submitting state.
       if (err instanceof demoApi.ApiError && err.status === 403) {
         setSubmitError('نشر الوظائف يتطلب توثيق الشركة أولاً. أكمل ملف الشركة واطلب التحقق.');
+      } else if (err instanceof demoApi.ApiError && err.status === 400) {
+        // The server rejects with a raw "Invalid input" — say what to check.
+        setSubmitError('بيانات الوظيفة غير صالحة — تأكد من العنوان والوصف، وأن الراتب أرقام فقط، والموعد النهائي ليس في الماضي.');
       } else {
         setSubmitError(err instanceof Error ? err.message : 'تعذر نشر الوظيفة. حاول مرة أخرى.');
       }
@@ -639,6 +692,71 @@ export function NewJobPage() {
       <WorkflowGuide role="company" current="job" />
 
       {/* Step Indicator */}
+      {/* AI draft: paste a ready-made ad or just name the role — the wizard
+          fills for review. Nothing is published until the company says so. */}
+      {!submitted && (
+        <Card className="mb-6" data-testid="card-ai-draft">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-primary" /> مسودة سريعة بالذكاء الاصطناعي
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              ألصق إعلان وظيفة جاهز أو حدّد المسمى وسنوات الخبرة فقط — يستخرج النظام المهارات والوصف والراتب واملأ الخطوات الثلاث لتراجعها قبل النشر.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <textarea
+              value={aiAd}
+              onChange={(e) => setAiAd(e.target.value)}
+              rows={5}
+              placeholder="ألصق نص إعلان الوظيفة هنا…"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6"
+              data-testid="textarea-job-ad"
+            />
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="text-sm font-semibold">أو اكتب المسمى الوظيفي
+                <Input
+                  value={aiPosition}
+                  onChange={(e) => setAiPosition(e.target.value)}
+                  placeholder="مثال: محلل بيانات"
+                  className="mt-2"
+                  data-testid="input-ai-position"
+                />
+              </label>
+              <label className="text-sm font-semibold">سنوات الخبرة المطلوبة (اختياري)
+                <Input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={aiYears}
+                  onChange={(e) => setAiYears(e.target.value)}
+                  placeholder="مثال: 3"
+                  className="mt-2"
+                  data-testid="input-ai-years"
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={runAiDraft}
+                disabled={aiBusy || (!aiAd.trim() && !aiPosition.trim())}
+                data-testid="button-ai-draft"
+              >
+                <Sparkles className="h-4 w-4" /> {aiBusy ? 'جارٍ الاستخراج…' : 'املأ المسودة'}
+              </Button>
+              {aiDone && (
+                <p className="text-sm font-semibold text-primary" data-testid="status-ai-draft">
+                  تم ملء الخطوات الثلاث — راجعها ثم انشر.
+                </p>
+              )}
+              {aiError && (
+                <p className="text-sm text-destructive" role="alert" data-testid="error-ai-draft">{aiError}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="mb-8 flex items-center gap-2">
         {steps.map((label, index) => {
           const num = index + 1;
@@ -751,7 +869,7 @@ export function NewJobPage() {
                   <Field label="نطاق الراتب" value={form.salary} onChange={(v) => update('salary', v)} placeholder="مثال: 18,000 – 24,000 ر.س" />
                   <div>
                     <label className="block text-sm font-semibold">آخر موعد للتقديم
-                      <input type="date" value={form.deadline} onChange={(e) => update('deadline', e.target.value)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="input-job-deadline" />
+                      <input type="date" value={form.deadline} min={isoDate(0)} onChange={(e) => update('deadline', e.target.value)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="input-job-deadline" />
                     </label>
                   </div>
                 </CardContent>

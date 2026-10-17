@@ -53,6 +53,20 @@ export function errorHandler(
     return;
   }
 
+  // body-parser-style errors carry their own 4xx status — a malformed JSON
+  // body is a client mistake, not a server crash.
+  const carried = err as { statusCode?: unknown; status?: unknown };
+  const carriedStatus = [carried.statusCode, carried.status].find(
+    (s): s is number => typeof s === "number" && s >= 400 && s < 500,
+  );
+  if (carriedStatus !== undefined) {
+    res.status(carriedStatus).json({
+      error: "Invalid request",
+      message: err.name === "SyntaxError" ? "Malformed JSON body." : err.message,
+    });
+    return;
+  }
+
   // Log unexpected errors server-side with full detail
   logger.error({ err }, "Unexpected error");
 

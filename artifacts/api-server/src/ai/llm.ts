@@ -537,4 +537,148 @@ Return ONLY the JSON object.`;
   }
 }
 
+// ─── Job-ad drafting ─────────────────────────────────────────────────────
+
+/** The structured draft a company reviews in the posting wizard before publishing. */
+export interface AiJobDraft {
+  title: string;
+  description: string;
+  industry: string;
+  location: string;
+  contractType: "full-time" | "part-time" | "contract" | "internship";
+  experienceLevel: "entry" | "mid" | "senior" | "lead";
+  salaryMin: number | null;
+  salaryMax: number | null;
+  requiredSkills: string[];
+  preferredSkills: string[];
+}
+
+/** The posting form offers these four industries; anything else maps to the closest. */
+const INDUSTRY_KEYWORDS: [RegExp, string][] = [
+  [/تقني|تكنولوجيا|برمج|حاسوب|ذكاء|بيانات|\bit\b|software|tech|data|dev/i, "تقنية المعلومات"],
+  [/مالي|بنك|فينتك|تأمين|fintech|bank|financ|insur/i, "التقنية المالية"],
+  [/تسويق|اعلان|growth|brand|market/i, "التسويق"],
+  [/استشار|consult|advisor/i, "الاستشارات"],
+];
+
+function normalizeContractType(value: unknown): AiJobDraft["contractType"] {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw.includes("part")) return "part-time";
+  if (raw.includes("intern") || raw.includes("train")) return "internship";
+  if (raw.includes("contract") || raw.includes("freelance") || raw.includes("consult")) return "contract";
+  return "full-time";
+}
+
+function normalizeExperienceLevel(value: unknown, years: number | null): AiJobDraft["experienceLevel"] {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw.includes("lead") || raw.includes("head") || raw.includes("principal") || raw.includes("director") || raw.includes("قياد")) return "lead";
+  if (raw.includes("senior") || raw.includes("experienc") || raw.includes("خبير")) return "senior";
+  if (raw.includes("entry") || raw.includes("junior") || raw.includes("graduat") || raw.includes("مبتد")) return "entry";
+  if (raw.includes("mid") || raw.includes("intermed") || raw.includes("متوسط")) return "mid";
+  if (years !== null) return years <= 2 ? "entry" : years <= 5 ? "mid" : years <= 9 ? "senior" : "lead";
+  return "mid";
+}
+
+function normalizeIndustry(value: unknown): string {
+  const raw = String(value ?? "");
+  return INDUSTRY_KEYWORDS.find(([re]) => re.test(raw))?.[1] ?? "تقنية المعلومات";
+}
+
+function normalizeSalary(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number.parseInt(String(value ?? "").replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+function normalizeSkillList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    const name = String(item ?? "").trim().slice(0, 100);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length === 12) break;
+  }
+  return out;
+}
+
+/**
+ * Turns a pasted job advertisement — or just a position title plus wanted
+ * experience — into a fill-in draft for the company's posting wizard. The
+ * company reviews and edits every field; nothing is written to the database
+ * here. Enums are normalized server-side so a creative model reply ("Full
+ * Time", "junior") can never leak an invalid value into the form.
+ */
+export async function parseJobAdWithLLM(input: {
+  adText?: string;
+  position?: string;
+  experienceYears?: number;
+}): Promise<AiJobDraft> {
+  const adText = input.adText?.trim();
+  const position = input.position?.trim();
+  const years = typeof input.experienceYears === "number" ? input.experienceYears : null;
+
+  const systemPrompt = `You are a hiring assistant that drafts a structured job posting for a hiring platform.
+${adText
+    ? "A pasted job advertisement is provided: extract EVERY field from it faithfully."
+    : "Only a position title (and maybe required years of experience) is provided: compose a realistic draft for that role."}
+Return ONLY one JSON object:
+{
+  "title": "job title",
+  "description": "the posting description: responsibilities and qualifications, 3-6 sentences, in the same language as the ad/position",
+  "industry": "one of: تقنية المعلومات | التقنية المالية | التسويق | الاستشارات",
+  "location": "City, Country as written in the ad (or a sensible default for the role)",
+  "contractType": "full-time" | "part-time" | "contract" | "internship",
+  "experienceLevel": "entry" | "mid" | "senior" | "lead",
+  "salaryMin": number or null,
+  "salaryMax": number or null,
+  "requiredSkills": ["hard requirement", "..."],
+  "preferredSkills": ["nice to have", "..."]
+}
+Rules:
+- requiredSkills are the hard requirements, preferredSkills the nice-to-haves (3-10 each when the content supports it).
+- Skills are ONLY tools, technologies and craft abilities (SQL, Power BI, communication). Education or degree requirements (Bachelor's, Master's, university) belong in the description, NEVER in the skill lists.
+- experienceLevel: entry = 0-2 years, mid = 3-5, senior = 6-9, lead = 10+ (or follow the ad's wording).
+- salary figures are plain numbers without currency; null when the ad does not state them — never invent figures.
+- Keep technical skills in their common form (SQL, Power BI, Python) even inside Arabic text.`;
+
+  const userPrompt = `Position: ${position ?? adText?.split("\n")[0]?.slice(0, 120) ?? "-"}
+Required experience (years): ${years ?? "-"}
+
+Job advertisement:
+${(adText ?? position ?? "").slice(0, 12_000)}`;
+
+  try {
+    const result = await callLLM(systemPrompt, userPrompt, 2500, { json: true });
+    const parsed = extractJson(result.content) as Partial<AiJobDraft>;
+    if (!parsed || (!parsed.title && !parsed.description)) {
+      throw new Error("LLM returned no usable job fields");
+    }
+
+    let salaryMin = normalizeSalary(parsed.salaryMin);
+    let salaryMax = normalizeSalary(parsed.salaryMax);
+    if (salaryMin !== null && salaryMax !== null && salaryMin > salaryMax) {
+      [salaryMin, salaryMax] = [salaryMax, salaryMin];
+    }
+
+    return {
+      title: String(parsed.title ?? position ?? "").trim().slice(0, 200),
+      description: String(parsed.description ?? "").trim().slice(0, 8000),
+      industry: normalizeIndustry(parsed.industry),
+      location: String(parsed.location ?? "").trim().slice(0, 120) || "الرياض، السعودية",
+      contractType: normalizeContractType(parsed.contractType),
+      experienceLevel: normalizeExperienceLevel(parsed.experienceLevel, years),
+      salaryMin,
+      salaryMax,
+      requiredSkills: normalizeSkillList(parsed.requiredSkills),
+      preferredSkills: normalizeSkillList(parsed.preferredSkills),
+    };
+  } catch (err) {
+    logger.error({ err }, "parseJobAdWithLLM failed");
+    throw err instanceof Error ? err : new Error("Job-ad drafting failed");
+  }
+}
+
 export { callLLM };

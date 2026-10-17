@@ -11,6 +11,11 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+/** A date-only deadline ("YYYY-MM-DD") closes applications at the end of that day. */
+function deadlineDate(value: string): Date {
+  return new Date(value.length === 10 ? `${value}T23:59:59.999` : value);
+}
+
 const createJobSchema = z.object({
   title: z.string().min(3).max(200),
   description: z.string().min(10),
@@ -20,7 +25,8 @@ const createJobSchema = z.object({
   experienceLevel: z.enum(["entry", "mid", "senior", "lead"]).default("mid"),
   salaryMin: z.number().int().positive().optional(),
   salaryMax: z.number().int().positive().optional(),
-  deadline: z.string().datetime().optional(),
+  // HTML date inputs send "YYYY-MM-DD"; also accept full ISO datetimes.
+  deadline: z.union([z.iso.date(), z.string().datetime()]).optional(),
   requiredSkills: z.array(z.object({ name: z.string(), category: z.string() })).default([]),
   preferredSkills: z.array(z.object({ name: z.string(), category: z.string() })).default([]),
 });
@@ -245,7 +251,7 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
     experienceLevel: data.experienceLevel,
     salaryMin: data.salaryMin,
     salaryMax: data.salaryMax,
-    deadline: data.deadline ? new Date(data.deadline) : null,
+    deadline: data.deadline ? deadlineDate(data.deadline) : null,
     status: "active",
   }).returning();
 
@@ -360,7 +366,7 @@ router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("
   const updated = await db.update(jobsTable)
     .set({
       ...rest,
-      ...(deadline !== undefined ? { deadline: new Date(deadline) } : {}),
+      ...(deadline !== undefined ? { deadline: deadlineDate(deadline) } : {}),
     })
     .where(eq(jobsTable.id, job.id))
     .returning();
