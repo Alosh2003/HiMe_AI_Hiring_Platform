@@ -282,7 +282,14 @@ const emptyBreakdown = (): MatchBreakdown => ({ skills: null, experience: null, 
 /** Extracts matched/missing skill names from a nested engine breakdown. */
 function skillNames(raw: unknown, key: 'matched' | 'missing'): string[] {
   if (!raw || typeof raw !== 'object') return [];
-  const list = (raw as Record<string, unknown>)[key];
+  const obj = raw as Record<string, unknown>;
+  // The engine nests the lists under `skills` ({ skills: { matched, missing } })
+  // while older rows carried them flat — accept both, or the chip lists render
+  // empty while the explanation (a server string) still looks correct.
+  const nested = obj.skills && typeof obj.skills === 'object'
+    ? (obj.skills as Record<string, unknown>)[key]
+    : undefined;
+  const list = Array.isArray(nested) ? nested : obj[key];
   return Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string') : [];
 }
 

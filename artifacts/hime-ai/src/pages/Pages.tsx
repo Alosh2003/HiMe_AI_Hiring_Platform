@@ -412,15 +412,15 @@ function RecommendationCard({ match }: { match: MatchResult }) {
 
           {/* The AI plan: how to close each gap on the profile/CV. */}
           <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
             onClick={runCoach}
             disabled={coachBusy}
             data-testid={`button-coach-${jobId}`}
+            className="group mt-5 h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-br from-primary via-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-[0_10px_28px_-10px_hsl(var(--primary)/0.65)] transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_34px_-10px_hsl(var(--primary)/0.8)] active:translate-y-0 disabled:translate-y-0 disabled:opacity-70"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            {coachBusy ? 'جارٍ تحضير الخطة…' : coach ? 'إخفاء خطة التحسين' : 'كيف أرتفع مطابقتي؟'}
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/20">
+              <Sparkles className={`h-4 w-4 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110 ${coachBusy ? 'animate-pulse' : ''}`} />
+            </span>
+            <span>{coachBusy ? 'جارٍ تحضير الخطة…' : coach ? 'إخفاء خطة التحسين' : 'كيف أرتفع مطابقتي؟'}</span>
           </Button>
 
           {coachError && (

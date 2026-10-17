@@ -1034,6 +1034,28 @@ describe('AI job draft', () => {
 // ─── Match coaching (recommendations → profile/CV plan) ──────────────────────
 
 describe('match coaching', () => {
+  it('renders the engine’s real matched and gap skills in the chip lists', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/seeker/recommendations');
+
+    // Regression: skillNames() used to read the breakdown top level
+    // (breakdown.matched) while the engine nests the lists under
+    // breakdown.skills — so both chip lists and their counts rendered as
+    // empty zeros even though the API returned full skill data.
+    const matchedList = await screen.findByTestId(/^list-matched/, {}, { timeout: 3000 });
+    expect(within(matchedList).getByText('Figma')).toBeInTheDocument();
+    expect(within(matchedList).getByText('User Research')).toBeInTheDocument();
+
+    const jobId = matchedList.dataset.testid!.replace('list-matched-', '');
+    const gapsList = screen.getByTestId(`list-gaps-${jobId}`);
+    expect(within(gapsList).getByText('Design Systems')).toBeInTheDocument();
+
+    // The toggle counts agree with the lists — never zeros again.
+    expect(screen.getByTestId(`button-toggle-matched-${jobId}`)).toHaveTextContent('2');
+    expect(screen.getByTestId(`button-toggle-gaps-${jobId}`)).toHaveTextContent('1');
+  });
+
   it('turns a recommendation into an actionable AI plan', async () => {
     setRole('seeker');
     localStorage.setItem('hime_ai_token', 'test-jwt-token');
