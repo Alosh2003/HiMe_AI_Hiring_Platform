@@ -297,6 +297,55 @@ type ApiRecommendation = {
 };
 interface ApiMatch { overallScore?: number; explanation?: string; breakdown?: unknown; }
 
+// ─── Match coaching ────────────────────────────────────────────────────────
+
+/** One missing skill together with a concrete plan to close it. */
+export interface CoachGap { skill: string; advice: string; cvTip: string; }
+
+/** The AI plan that turns a recommendation into profile/CV actions. */
+export interface MatchCoach {
+  summary: string;
+  gaps: CoachGap[];
+  showcase: { skill: string; cvTip: string }[];
+}
+
+/**
+ * Asks the AI how this seeker can raise their match for one job: how to gain
+ * each missing skill, and how to showcase the matched ones on the CV.
+ */
+export async function matchCoach(jobId: string): Promise<MatchCoach> {
+  if (hasApi()) return apiRequest<MatchCoach>('/ai/match-coach', { method: 'POST', body: JSON.stringify({ jobId }) });
+  await wait();
+  return {
+    summary: 'يركز خطك أولاً على إبراز مهاراتك الحالية في الملف، ثم إغلاق فجوة واحدة عالية الأثر تباعاً.',
+    gaps: [],
+    showcase: [],
+  };
+}
+
+/**
+ * Adds one skill to the seeker's profile. PATCH /candidates/profile replaces
+ * the whole skill list, so the current profile is fetched and merged first —
+ * nothing the seeker already has may be dropped.
+ */
+export async function addProfileSkill(name: string): Promise<string[]> {
+  const key = name.trim().toLowerCase();
+  const merge = (skills: Skill[]): Skill[] =>
+    skills.some((s) => s.name.trim().toLowerCase() === key)
+      ? skills
+      : [...skills, { id: `s-${name}`, name, category: 'professional' }];
+
+  if (hasApi()) {
+    const current = (await getProfile()).skills ?? [];
+    const next = merge(current);
+    if (next.length !== current.length) await updateProfile({ skills: next });
+    return next.map((s) => s.name);
+  }
+  await wait();
+  demoProfile.skills = merge(demoProfile.skills);
+  return demoProfile.skills.map((s) => s.name);
+}
+
 export async function recommendations(): Promise<MatchResult[]> {
   if (hasApi()) {
     // On the live endpoint `match` lives INSIDE `job` — reading it off the

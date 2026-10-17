@@ -19,7 +19,7 @@ import {
   PageHeader, PublicNav, ScoreBreakdown, ScoreRing
 } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
-import type { ApplicationStatus } from '@/types';
+import type { ApplicationStatus, MatchResult } from '@/types';
 
 // ─── Public Footer ────────────────────────────────────────────────────────────
 function PublicFooter() {
@@ -301,9 +301,201 @@ export function AboutPage() {
 }
 
 // ─── Recommendations Page ─────────────────────────────────────────────────────
+const fallbackJobTitles: Record<string, string> = { 'j-1': 'مصمم تجربة مستخدم أول', 'j-2': 'مدير منتج — منصات الذكاء الاصطناعي', 'j-3': 'مهندس واجهات أمامية' };
+
+function RecommendationCard({ match }: { match: MatchResult }) {
+  const jobId = match.jobId;
+  const [matchedOpen, setMatchedOpen] = useState(true);
+  const [gapsOpen, setGapsOpen] = useState(true);
+  const [coach, setCoach] = useState<demoApi.MatchCoach | null>(null);
+  const [coachBusy, setCoachBusy] = useState(false);
+  const [coachError, setCoachError] = useState('');
+  const [adding, setAdding] = useState('');
+  const [added, setAdded] = useState<string[]>([]);
+
+  const runCoach = async () => {
+    if (coachBusy) return;
+    if (coach) { setCoach(null); return; }
+    setCoachBusy(true);
+    setCoachError('');
+    try {
+      setCoach(await demoApi.matchCoach(jobId));
+    } catch (err) {
+      // Honest failure — the score and chips above stay usable regardless.
+      setCoachError(
+        err instanceof demoApi.ApiError && err.detail
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : 'تعذر الوصول إلى مساعد التطوير الذكي الآن — حاول مرة أخرى لاحقاً.',
+      );
+    } finally {
+      setCoachBusy(false);
+    }
+  };
+
+  const addSkill = async (skill: string) => {
+    setAdding(skill);
+    setCoachError('');
+    try {
+      await demoApi.addProfileSkill(skill);
+      setAdded((prev) => (prev.includes(skill) ? prev : [...prev, skill]));
+    } catch (err) {
+      setCoachError(err instanceof Error ? err.message : 'تعذر إضافة المهارة إلى ملفك — أضفها يدوياً من صفحة الملف.');
+    } finally {
+      setAdding('');
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="grid gap-6 p-6 md:grid-cols-[180px_1fr_1fr] md:items-center">
+        <div className="flex items-center gap-4 md:block">
+          <ScoreRing score={match.score} />
+          <div className="md:mt-3">
+            <p className="font-bold">{match.jobTitle || fallbackJobTitles[jobId] || 'وظيفة مقترحة'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">توصية مبنية على ملفك</p>
+          </div>
+        </div>
+        <div>
+          <p className="mb-4 text-xs font-bold uppercase tracking-wider text-primary">تفصيل التطابق</p>
+          <ScoreBreakdown match={match} />
+          {match.explanation && (
+            <p className="mt-4 rounded-lg bg-secondary/60 p-3 text-xs leading-6 text-muted-foreground" data-testid={`explanation-${match.id}`}>{match.explanation}</p>
+          )}
+        </div>
+        <div>
+          {/* Both section headers are real toggles — collapse to scan, expand to review. */}
+          <button
+            type="button"
+            onClick={() => setMatchedOpen((v) => !v)}
+            aria-expanded={matchedOpen}
+            className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary"
+            data-testid={`button-toggle-matched-${jobId}`}
+          >
+            ماذا تطابق؟
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px]">{match.matchedSkills.length}</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${matchedOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {matchedOpen && (
+            <div className="flex flex-wrap gap-2" data-testid={`list-matched-${jobId}`}>
+              {match.matchedSkills.length === 0 && (
+                <span className="text-[11px] text-muted-foreground">لا توجد مهارات مطابقة بعد.</span>
+              )}
+              {match.matchedSkills.map((skill) => (
+                <span key={skill.id} className="rounded-md bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary">{skill.name}</span>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setGapsOpen((v) => !v)}
+            aria-expanded={gapsOpen}
+            className="mb-2 mt-5 flex items-center gap-1.5 text-xs font-bold text-muted-foreground"
+            data-testid={`button-toggle-gaps-${jobId}`}
+          >
+            فجوات تستحق النظر
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{match.missingSkills.length}</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${gapsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {gapsOpen && (
+            <div className="flex flex-wrap gap-2" data-testid={`list-gaps-${jobId}`}>
+              {match.missingSkills.length === 0 && (
+                <span className="text-[11px] text-muted-foreground">لا فجوات — ملفك يغطي المهارات المطلوبة.</span>
+              )}
+              {match.missingSkills.map((skill) => (
+                <span key={skill.id} className="rounded-md bg-muted px-2.5 py-1.5 text-[11px]">{skill.name}</span>
+              ))}
+            </div>
+          )}
+
+          {/* The AI plan: how to close each gap on the profile/CV. */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={runCoach}
+            disabled={coachBusy}
+            data-testid={`button-coach-${jobId}`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {coachBusy ? 'جارٍ تحضير الخطة…' : coach ? 'إخفاء خطة التحسين' : 'كيف أرتفع مطابقتي؟'}
+          </Button>
+
+          {coachError && (
+            <p className="mt-3 text-xs text-destructive" role="alert" data-testid={`error-coach-${jobId}`}>{coachError}</p>
+          )}
+
+          {coach && (
+            <div className="mt-4 space-y-4 rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid={`panel-coach-${jobId}`}>
+              <p className="text-xs font-semibold leading-6">{coach.summary}</p>
+
+              {coach.gaps.length > 0 && (
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-primary">أغِل الفجوات في ملفك وسيرتك</p>
+                  <ul className="space-y-3">
+                    {coach.gaps.map((gap, index) => (
+                      <li key={gap.skill} className="rounded-lg bg-background/80 p-3" data-testid={`coach-gap-${jobId}-${index}`}>
+                        <p className="text-xs font-bold">{gap.skill}</p>
+                        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{gap.advice}</p>
+                        <p className="mt-1.5 text-[11px] leading-5 text-foreground/80">
+                          <span className="font-bold text-primary">نصيحة للسيرة الذاتية:</span> {gap.cvTip}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => addSkill(gap.skill)}
+                            disabled={added.includes(gap.skill) || adding === gap.skill}
+                            className="text-[11px] font-bold text-primary underline-offset-2 hover:underline disabled:text-muted-foreground disabled:no-underline"
+                            data-testid={`button-add-skill-${jobId}-${index}`}
+                          >
+                            {added.includes(gap.skill) ? '✓ أضيفت إلى ملفك' : adding === gap.skill ? 'جارٍ الإضافة…' : 'أضفها إلى ملفي'}
+                          </button>
+                          <Link
+                            href="/seeker/cv"
+                            className="text-[11px] font-bold text-primary underline-offset-2 hover:underline"
+                            data-testid={`link-update-cv-${jobId}-${index}`}
+                          >
+                            حدّث سيرتك الذاتية
+                          </Link>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {coach.showcase.length > 0 && (
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-primary">برز مهاراتك المطابقة</p>
+                  <ul className="space-y-2">
+                    {coach.showcase.map((item) => (
+                      <li key={item.skill} className="rounded-lg bg-background/80 p-3 text-[11px] leading-5">
+                        <span className="font-bold text-primary">{item.skill}:</span> {item.cvTip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                الإضافة إلى الملف بضغطة واحدة؛ أما السيرة الذاتية فتبقى تحت مراجعتك قبل أي إرسال.
+              </p>
+            </div>
+          )}
+
+          <Link href={`/jobs/${jobId}`} className="mt-5 inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid={`link-recommendation-${match.id}`}>
+            عرض الوظيفة <ArrowUpLeft className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function RecommendationsPage() {
   const { data: matches, loading, error, reload } = useDemo(demoApi.recommendations, []);
-  const jobTitles: Record<string, string> = { 'j-1': 'مصمم تجربة مستخدم أول', 'j-2': 'مدير منتج — منصات الذكاء الاصطناعي', 'j-3': 'مهندس واجهات أمامية' };
   if (loading) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
   if (error || !matches) return <RoleShell role="seeker"><FeedbackState error={error} retry={reload} /></RoleShell>;
   return (
@@ -312,41 +504,7 @@ export function RecommendationsPage() {
       <WorkflowGuide role="seeker" current="recommendations" />
       <div className="space-y-5">
         {matches.map((match) => (
-          <Card key={match.id}>
-            <CardContent className="grid gap-6 p-6 md:grid-cols-[180px_1fr_1fr] md:items-center">
-              <div className="flex items-center gap-4 md:block">
-                <ScoreRing score={match.score} />
-                <div className="md:mt-3">
-                  <p className="font-bold">{match.jobTitle || jobTitles[match.jobId] || 'وظيفة مقترحة'}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">توصية مبنية على ملفك</p>
-                </div>
-              </div>
-              <div>
-                <p className="mb-4 text-xs font-bold uppercase tracking-wider text-primary">تفصيل التطابق</p>
-                <ScoreBreakdown match={match} />
-                {match.explanation && (
-                  <p className="mt-4 rounded-lg bg-secondary/60 p-3 text-xs leading-6 text-muted-foreground" data-testid={`explanation-${match.id}`}>{match.explanation}</p>
-                )}
-              </div>
-              <div>
-                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-primary">ماذا تطابق؟</p>
-                <div className="flex flex-wrap gap-2">
-                  {match.matchedSkills.map((skill: import('@/types').Skill) => (
-                    <span key={skill.id} className="rounded-md bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary">{skill.name}</span>
-                  ))}
-                </div>
-                <p className="mb-2 mt-5 text-xs font-bold text-muted-foreground">فجوات تستحق النظر</p>
-                <div className="flex flex-wrap gap-2">
-                  {match.missingSkills.map((skill: import('@/types').Skill) => (
-                    <span key={skill.id} className="rounded-md bg-muted px-2.5 py-1.5 text-[11px]">{skill.name}</span>
-                  ))}
-                </div>
-                <Link href={`/jobs/${match.jobId}`} className="mt-5 inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid={`link-recommendation-${match.id}`}>
-                  عرض الوظيفة <ArrowUpLeft className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
+          <RecommendationCard key={match.id} match={match} />
         ))}
       </div>
       <p className="mt-6 rounded-xl bg-accent/10 p-4 text-xs leading-6 text-muted-foreground">

@@ -301,6 +301,23 @@ export const handlers = [
       preferredSkills: ['Airflow'],
     });
   }),
+  // AI match coaching (seeker recommendations → profile/CV plan)
+  http.post('*/api/ai/match-coach', async () => {
+    await delay(10);
+    return HttpResponse.json({
+      summary: 'ابدأ بإضافة الفجوة عالية الأثر إلى ملفك، ثم أعد صياغة إنجازاتك في السيرة الذاتية وفق نصائح المهارات المطابقة.',
+      gaps: [
+        {
+          skill: 'Design Systems',
+          advice: 'ابنِ مكوّنات موحّدة في مشروع شخصي ووثّق قواعدها — دورة تطبيقية على أنظمة التصميم تكفي للبداية.',
+          cvTip: 'أبرز أعمالك في Figma وUser Research كأساس قريب من بناء أنظمة التصميم، بدون ادعاء خبرة لا تملكها.',
+        },
+      ],
+      showcase: [
+        { skill: 'Figma', cvTip: 'اذكر مشروعاً بأرقام: عدد المكوّنات أو وقت الاختصار الذي حققته.' },
+      ],
+    });
+  }),
   http.get(`*/api/ai/rank/${TEST_IDS.job1}`, async () => {
     await delay(10);
     return HttpResponse.json([{ candidate: { id: candidate.id, name: 'سارة الحربي', headline: 'Product Designer' }, match: apiMatch }]);

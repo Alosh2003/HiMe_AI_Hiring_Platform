@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, cleanup, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import App from './App';
@@ -1028,5 +1028,78 @@ describe('AI job draft', () => {
     const error = await screen.findByTestId('error-ai-draft', {}, { timeout: 5000 });
     expect(error).toHaveTextContent('محرك الذكاء الاصطناعي');
     expect(screen.queryByTestId('status-ai-draft')).not.toBeInTheDocument();
+  });
+});
+
+// ─── Match coaching (recommendations → profile/CV plan) ──────────────────────
+
+describe('match coaching', () => {
+  it('turns a recommendation into an actionable AI plan', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/seeker/recommendations');
+
+    const coachBtn = await screen.findByTestId(/^button-coach/, {}, { timeout: 3000 });
+    fireEvent.click(coachBtn);
+
+    const panel = await screen.findByTestId(/^panel-coach/, {}, { timeout: 5000 });
+    // The plan carries the gap, concrete advice and a CV tip.
+    expect(panel).toHaveTextContent('Design Systems');
+    expect(panel).toHaveTextContent('نصيحة للسيرة الذاتية');
+    expect(panel).toHaveTextContent('ابنِ مكوّنات موحّدة');
+
+    // One click adds the gap skill to the seeker's profile — with visible proof.
+    fireEvent.click(within(panel).getByTestId(/^button-add-skill/));
+    expect(await within(panel).findByText('✓ أضيفت إلى ملفك', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(within(panel).getByTestId(/^link-update-cv/)).toHaveAttribute('href', '/seeker/cv');
+  });
+
+  it('reports an unreachable coach without hiding the recommendation', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.post('*/api/ai/match-coach', async () => {
+        await delay(10);
+        return HttpResponse.json(
+          { error: 'AI coach unavailable', message: 'تعذر الوصول إلى مساعد التطوير الذكي الآن. حاول مرة أخرى لاحقاً.' },
+          { status: 502 },
+        );
+      }),
+    );
+    renderAt('/seeker/recommendations');
+
+    const coachBtn = await screen.findByTestId(/^button-coach/, {}, { timeout: 3000 });
+    fireEvent.click(coachBtn);
+
+    expect(await screen.findByTestId(/^error-coach/, {}, { timeout: 5000 })).toHaveTextContent('مساعد التطوير الذكي');
+    expect(screen.queryByTestId(/^panel-coach/)).not.toBeInTheDocument();
+    // The score breakdown and job link survive the failure.
+    expect(screen.getByTestId(/^button-coach/)).toBeInTheDocument();
+    expect(screen.getByTestId(/^link-recommendation/)).toBeInTheDocument();
+  });
+
+  it('collapses and reopens the match sections', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    renderAt('/seeker/recommendations');
+
+    const toggle = await screen.findByTestId(/^button-toggle-matched/, {}, { timeout: 3000 });
+    const jobId = toggle.dataset.testid!.replace('button-toggle-matched-', '');
+
+    // Open by default…
+    expect(screen.getByTestId(`list-matched-${jobId}`)).toBeVisible();
+    // …one click collapses…
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId(`list-matched-${jobId}`)).not.toBeInTheDocument();
+    // …and the next brings it back.
+    fireEvent.click(toggle);
+    expect(screen.getByTestId(`list-matched-${jobId}`)).toBeVisible();
+
+    // Same for the gaps section.
+    const gapsToggle = screen.getByTestId(`button-toggle-gaps-${jobId}`);
+    fireEvent.click(gapsToggle);
+    expect(screen.queryByTestId(`list-gaps-${jobId}`)).not.toBeInTheDocument();
+    fireEvent.click(gapsToggle);
+    expect(screen.getByTestId(`list-gaps-${jobId}`)).toBeVisible();
   });
 });

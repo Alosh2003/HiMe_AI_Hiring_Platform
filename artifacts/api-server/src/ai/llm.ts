@@ -497,6 +497,32 @@ export async function calculateProfileCompletion(candidateId: string): Promise<n
   return Math.min(Math.round(score), 100);
 }
 
+// ─── Skill-list sanitation ──────────────────────────────────────────────────
+
+/** Han/Kana/Hangul ranges — skills on this platform are written in English or Arabic. */
+const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+
+/**
+ * Trims, de-duplicates and caps a model-provided skill list, dropping any
+ * CJK-script entry. A drifting model must never label a job's requirements in
+ * a language the platform doesn't use (数据分析 instead of Data Analysis) —
+ * those names would hide real matches from the skill matcher forever.
+ */
+function normalizeSkillList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    const name = String(item ?? "").trim().slice(0, 100);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key) || CJK_RE.test(name)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length === 12) break;
+  }
+  return out;
+}
+
 // ─── Job Description Analysis ──────────────────────────────────────────────
 
 export async function analyzeJobDescription(description: string): Promise<{
@@ -517,6 +543,7 @@ Extract the following as JSON:
   "experienceLevel": "entry|mid|senior|lead",
   "industry": "industry name"
 }
+Skill names must be in English (their standard technical form) or Arabic — never Chinese, Japanese or Korean script.
 Return ONLY the JSON object.`;
 
   try {
@@ -530,7 +557,11 @@ Return ONLY the JSON object.`;
     if (!parsed || (!parsed.requiredSkills?.length && !parsed.industry)) {
       throw new Error("LLM returned no usable job fields");
     }
-    return parsed;
+    return {
+      ...parsed,
+      requiredSkills: normalizeSkillList(parsed.requiredSkills),
+      preferredSkills: normalizeSkillList(parsed.preferredSkills),
+    };
   } catch (err) {
     logger.error({ err }, "analyzeJobDescription failed");
     return { requiredSkills: [], preferredSkills: [], experienceLevel: "mid", industry: "" };
@@ -589,21 +620,6 @@ function normalizeSalary(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 }
 
-function normalizeSkillList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of value) {
-    const name = String(item ?? "").trim().slice(0, 100);
-    const key = name.toLowerCase();
-    if (!name || seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-    if (out.length === 12) break;
-  }
-  return out;
-}
-
 /**
  * Turns a pasted job advertisement — or just a position title plus wanted
  * experience — into a fill-in draft for the company's posting wizard. The
@@ -640,6 +656,7 @@ Return ONLY one JSON object:
 Rules:
 - requiredSkills are the hard requirements, preferredSkills the nice-to-haves (3-10 each when the content supports it).
 - Skills are ONLY tools, technologies and craft abilities (SQL, Power BI, communication). Education or degree requirements (Bachelor's, Master's, university) belong in the description, NEVER in the skill lists.
+- Skill names must be in English (their standard technical form) or Arabic — never Chinese, Japanese or Korean script.
 - experienceLevel: entry = 0-2 years, mid = 3-5, senior = 6-9, lead = 10+ (or follow the ad's wording).
 - salary figures are plain numbers without currency; null when the ad does not state them — never invent figures.
 - Keep technical skills in their common form (SQL, Power BI, Python) even inside Arabic text.`;
@@ -679,6 +696,110 @@ ${(adText ?? position ?? "").slice(0, 12_000)}`;
     logger.error({ err }, "parseJobAdWithLLM failed");
     throw err instanceof Error ? err : new Error("Job-ad drafting failed");
   }
+}
+
+// ─── Match coaching ─────────────────────────────────────────────────────────
+
+/** One missing skill together with a concrete plan to close it. */
+export interface CoachGap {
+  skill: string;
+  /** How to GAIN the skill: course type, project idea, or on-the-job angle. */
+  advice: string;
+  /** How to honestly highlight adjacent existing experience on the CV. */
+  cvTip: string;
+}
+
+/** The actionable plan that turns one recommendation into profile/CV work. */
+export interface MatchCoach {
+  summary: string;
+  gaps: CoachGap[];
+  showcase: { skill: string; cvTip: string }[];
+}
+
+/**
+ * Fallback for a gap the model skipped — still actionable, and deliberately
+ * never suggests claiming experience the candidate does not have.
+ */
+function defaultGap(skill: string): CoachGap {
+  return {
+    skill,
+    advice: `ابدأ بمصدر تعلم واحد مركّز لمهارة ${skill} (دورة تطبيقية أو مشروع صغير)، ثم طبّقها في مهمة حقيقية داخل عملك إن أمكن.`,
+    cvTip: `أدرج ${skill} في ملفك مع أي استخدام قريب منها من خبراتك الحالية بدون مبالغة، وحدّث السيرة الذاتية بعد إتمام تدريبك فيها.`,
+  };
+}
+
+/**
+ * Turns a job-candidate match into an improvement plan: for every missing
+ * skill, how to gain it and how to reframe adjacent experience truthfully on
+ * the CV; plus achievement-style tips for the matched skills. The result is
+ * advice only — this function never writes to the database.
+ */
+export async function coachMatchWithLLM(input: {
+  jobTitle: string;
+  jobDescription: string;
+  jobSkills: string[];
+  candidateHeadline: string;
+  candidateSkills: string[];
+  matchedSkills: string[];
+  missingSkills: string[];
+  experienceRoles: string[];
+}): Promise<MatchCoach> {
+  const systemPrompt = `You are a career coach. You help a candidate raise their job match by improving their profile and CV — honestly, never fabricating experience.
+CRITICAL LANGUAGE RULE: write summary, advice and cvTip prose in professional Arabic (العربية). Keep only skill names, technical terms, and any quoted example CV bullet in English.
+Return ONLY one JSON object:
+{
+  "summary": "١-٢ جملة: أعلى الإجراءات أثراً لهذا المرشح",
+  "gaps": [{ "skill": "...", "advice": "كيف تكتسب هذه المهارة: نوع دورة محددة، فكرة مشروع، أو زاوية تطبيقها في العمل (١-٢ جملة)", "cvTip": "كيف تُبرز بصدق خبرة قريبة منها في السيرة الذاتية (١-٢ جملة)" }],
+  "showcase": [{ "skill": "...", "cvTip": "جملة واحدة: كيف تصوغ إنجازاً قوياً بمهارة مطابقة" }]
+}
+Rules:
+- Use ONLY skill names from the provided lists, spelled exactly as given, in English or Arabic (never Chinese/Japanese/Korean).
+- Cover EVERY missing skill in "gaps" (same order); pick up to 5 of the strongest matched skills for "showcase".
+- Never tell the candidate to claim a skill they don't have — advice is about gaining it or reframing adjacent work truthfully.
+- Keep each field 1-3 sentences.`;
+
+  const userPrompt = `Job: ${input.jobTitle}
+Job description: ${input.jobDescription.slice(0, 3000)}
+Required skills: ${input.jobSkills.join(", ")}
+
+Candidate headline: ${input.candidateHeadline || "-"}
+Candidate skills: ${input.candidateSkills.join(", ") || "-"}
+Recent roles: ${input.experienceRoles.join(" | ") || "-"}
+Matched skills: ${input.matchedSkills.join(", ") || "-"}
+Missing skills: ${input.missingSkills.join(", ") || "-"}`;
+
+  const result = await callLLM(systemPrompt, userPrompt, 3000, { json: true });
+  const parsed = extractJson(result.content) as Partial<MatchCoach> & { gaps?: Array<Partial<CoachGap>> };
+  if (!parsed || typeof parsed.summary !== "string" || !Array.isArray(parsed.gaps)) {
+    throw new Error("LLM returned no usable coaching plan");
+  }
+
+  const missing = input.missingSkills.filter(Boolean);
+  const bySkill = new Map<string, CoachGap>();
+  for (const gap of parsed.gaps) {
+    if (!gap || typeof gap.skill !== "string") continue;
+    // Only the real gaps of THIS job may appear in the plan.
+    const canonical = missing.find((m) => m.toLowerCase() === gap.skill!.trim().toLowerCase());
+    if (!canonical) continue;
+    bySkill.set(canonical, {
+      skill: canonical,
+      advice: String(gap.advice ?? "").trim() || defaultGap(canonical).advice,
+      cvTip: String(gap.cvTip ?? "").trim() || defaultGap(canonical).cvTip,
+    });
+  }
+
+  const showcase = (Array.isArray(parsed.showcase) ? parsed.showcase : [])
+    .filter((s): s is { skill: string; cvTip: string } =>
+      Boolean(s) && typeof s.skill === "string" && typeof s.cvTip === "string" && Boolean(s.cvTip.trim()))
+    .slice(0, 5)
+    .map((s) => ({ skill: s.skill.trim(), cvTip: s.cvTip.trim() }))
+    .filter((s) => Boolean(s.skill));
+
+  return {
+    summary: String(parsed.summary).trim(),
+    gaps: missing.map((skill) => bySkill.get(skill) ?? defaultGap(skill)),
+    showcase,
+  };
 }
 
 export { callLLM };

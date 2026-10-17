@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, skillsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { computeMatch, rankCandidates, generateExplanation, type MatchInput } from "../ai";
-import { generateMatchExplanation, parseJobAdWithLLM } from "../ai/llm";
+import { generateMatchExplanation, parseJobAdWithLLM, coachMatchWithLLM } from "../ai/llm";
 import { buildJobMatchInput, buildCandidateMatchInput, computeMatchSnapshot, persistMatchSnapshot } from "../ai/match-snapshot";
 import { aiRateLimiter } from "../middleware/rate-limiter";
 import { validateUuidParam, validateJobIdBody } from "../middleware/validate-params";
@@ -161,6 +161,81 @@ router.post("/parse-job-ad", authMiddleware, requireRole("company"), aiRateLimit
     res.status(502).json({
       error: "AI draft unavailable",
       message: "تعذر الوصول إلى محرك الذكاء الاصطناعي الآن. أكمل الحقول يدوياً أو حاول لاحقاً.",
+    });
+  }
+});
+
+// ─── Match coaching ────────────────────────────────────────────────────────
+
+/**
+ * Turns one job recommendation into an actionable plan: how to gain each
+ * missing skill and how to showcase the matched ones on the profile/CV.
+ * Read-only — profile edits happen through explicit user actions on the
+ * client, never from here.
+ */
+router.post("/match-coach", authMiddleware, requireRole("seeker"), validateJobIdBody, aiRateLimiter, async (req: AuthRequest, res) => {
+  const candidate = await db.query.candidatesTable.findFirst({
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+
+  const job = await db.query.jobsTable.findFirst({
+    where: eq(jobsTable.id, req.body.jobId as string),
+  });
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  try {
+    const [jobSkillRows, candidateSkillRows, experiences, education] = await Promise.all([
+      db.query.jobSkillsTable.findMany({ where: eq(jobSkillsTable.jobId, job.id) }),
+      db.query.candidateSkillsTable.findMany({ where: eq(candidateSkillsTable.candidateId, candidate.id) }),
+      db.query.experiencesTable.findMany({ where: eq(experiencesTable.candidateId, candidate.id) }),
+      db.query.educationTable.findMany({ where: eq(educationTable.candidateId, candidate.id) }),
+    ]);
+
+    const allSkillIds = [...new Set([...jobSkillRows, ...candidateSkillRows].map((s) => s.skillId))];
+    const skillRecords = allSkillIds.length > 0
+      ? await db.query.skillsTable.findMany({ where: inArray(skillsTable.id, allSkillIds) })
+      : [];
+    const jobSkillRecords = skillRecords.filter((s) => jobSkillRows.some((js) => js.skillId === s.id));
+    const candidateSkillRecords = skillRecords.filter((s) => candidateSkillRows.some((cs) => cs.skillId === s.id));
+
+    // The exact computation /recommendations used, so the plan matches the
+    // score and gap chips the seeker is looking at.
+    const match = computeMatch({
+      job: buildJobMatchInput(job, jobSkillRows, jobSkillRecords),
+      candidate: buildCandidateMatchInput({
+        ...candidate,
+        skills: candidateSkillRows,
+        skillRecords: candidateSkillRecords,
+        education,
+        experiences,
+      }),
+    });
+
+    const coach = await coachMatchWithLLM({
+      jobTitle: job.title,
+      jobDescription: job.description,
+      jobSkills: jobSkillRecords.map((s) => s.name),
+      candidateHeadline: candidate.headline ?? "",
+      candidateSkills: candidateSkillRecords.map((s) => s.name),
+      matchedSkills: match.breakdown.skills.matched,
+      missingSkills: match.breakdown.skills.missing,
+      experienceRoles: experiences.slice(0, 5).map((e) => `${e.role} @ ${e.company}`),
+    });
+
+    res.json(coach);
+  } catch (err) {
+    logger.error({ err }, "match-coach failed");
+    // Honest failure — the seeker keeps the score/chips and can retry later.
+    res.status(502).json({
+      error: "AI coach unavailable",
+      message: "تعذر الوصول إلى مساعد التطوير الذكي الآن. حاول مرة أخرى لاحقاً.",
     });
   }
 });
