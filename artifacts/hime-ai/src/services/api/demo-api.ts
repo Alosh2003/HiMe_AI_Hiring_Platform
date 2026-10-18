@@ -1,4 +1,4 @@
-import type { Application, ApplicationStatus, CandidateProfile, Company, Job, MatchBreakdown, MatchResult, Skill, User, VerificationStatus } from '@/types';
+import type { Application, ApplicationStatus, CandidateProfile, Company, ContractType, Job, MatchBreakdown, MatchResult, Skill, User, VerificationStatus } from '@/types';
 import { formatRelative, formatSalary } from '@/lib/format';
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
@@ -184,14 +184,71 @@ export async function getJob(id: string) {
 
 // ─── Candidate ────────────────────────────────────────────────────────────
 
+/**
+ * The API returns the raw row: nullable columns arrive as `null`, `phone`
+ * lives on the account (added to the response since it has no home on the
+ * candidate table), and work preferences use the server's shape
+ * (`contractTypes: string[]`) rather than ours (a single `contract`).
+ * Normalize to the UI contract so every form field is controlled and the
+ * edit → save round trip maps back correctly.
+ */
+type ApiProfile = Omit<CandidateProfile, 'headline' | 'summary' | 'location' | 'phone' | 'preferences'> & {
+  headline: string | null;
+  summary: string | null;
+  location: string | null;
+  phone?: string | null;
+  preferences?: { industries?: string[]; contractTypes?: string[]; remote?: boolean } | null;
+};
+
+const CONTRACT_TYPES: readonly string[] = ['full-time', 'part-time', 'contract', 'internship'];
+
+function normalizeProfile(raw: ApiProfile): CandidateProfile {
+  const prefs = raw.preferences ?? {};
+  const storedContract = prefs.contractTypes?.[0];
+  return {
+    ...raw,
+    headline: raw.headline ?? '',
+    summary: raw.summary ?? '',
+    location: raw.location ?? '',
+    phone: raw.phone ?? '',
+    skills: raw.skills ?? [],
+    experiences: raw.experiences ?? [],
+    education: raw.education ?? [],
+    projects: raw.projects ?? [],
+    certifications: raw.certifications ?? [],
+    preferences: {
+      industries: prefs.industries ?? [],
+      locations: [],
+      contract: CONTRACT_TYPES.includes(storedContract ?? '')
+        ? storedContract as ContractType
+        : 'full-time',
+      remote: prefs.remote ?? false,
+    },
+  };
+}
+
 export async function getProfile() {
-  if (hasApi()) return apiRequest<CandidateProfile>('/candidates/profile');
+  if (hasApi()) return normalizeProfile(await apiRequest<ApiProfile>('/candidates/profile'));
   await wait();
   return demoProfile;
 }
 
 export async function updateProfile(data: Partial<CandidateProfile>) {
-  if (hasApi()) return apiRequest<CandidateProfile>('/candidates/profile', { method: 'PATCH', body: JSON.stringify(data) });
+  if (hasApi()) {
+    // The API stores the contract preference as `contractTypes: string[]` —
+    // map the UI's single selection across. `preferences` is only sent when
+    // present, so partial updates (e.g. skills-only) leave it untouched.
+    const { preferences, ...rest } = data;
+    const body: Record<string, unknown> = { ...rest };
+    if (preferences) {
+      body.preferences = {
+        industries: preferences.industries ?? [],
+        contractTypes: preferences.contract ? [preferences.contract] : [],
+        remote: preferences.remote ?? false,
+      };
+    }
+    return apiRequest<CandidateProfile>('/candidates/profile', { method: 'PATCH', body: JSON.stringify(body) });
+  }
   await wait();
   Object.assign(demoProfile, data);
   return demoProfile;

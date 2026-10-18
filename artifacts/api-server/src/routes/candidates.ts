@@ -3,7 +3,7 @@ import multer from "multer";
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable } from "@workspace/db/schema";
+import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable, usersTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
@@ -77,6 +77,11 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
     return;
   }
 
+  const account = await db.query.usersTable.findFirst({
+    columns: { phone: true },
+    where: eq(usersTable.id, req.user!.userId),
+  });
+
   const [skills, experiences, education, projects, certifications] = await Promise.all([
     db.query.candidateSkillsTable.findMany({
       where: eq(candidateSkillsTable.candidateId, candidate.id),
@@ -107,6 +112,7 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
 
   res.json({
     ...candidate,
+    phone: account?.phone ?? null,
     cvStatus: cvStatusOf(candidate),
     skills: skills.map((s) => {
       const skill = skillMap.get(s.skillId);
@@ -126,28 +132,37 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
 });
 
 router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  // The profile form round-trips exactly what GET returned, and every one of
+  // these columns is nullable — `null` means "cleared". Zod's `.optional()`
+  // alone accepts `undefined` only, so a fresh account (NULL headline,
+  // summary, location, years_experience) used to 400 its own save.
   const updateSchema = z.object({
-    headline: z.string().max(200).optional(),
-    summary: z.string().max(2000).optional(),
-    location: z.string().max(200).optional(),
-    yearsExperience: z.number().int().min(0).max(50).optional(),
+    headline: z.string().max(200).nullish(),
+    summary: z.string().max(2000).nullish(),
+    location: z.string().max(200).nullish(),
+    yearsExperience: z.number().int().min(0).max(50).nullish(),
+    phone: z.string().max(30).nullish(),
     preferences: z.object({
       industries: z.array(z.string()).optional(),
       contractTypes: z.array(z.string()).optional(),
       remote: z.boolean().optional(),
       salaryMin: z.number().int().positive().optional(),
-    }).optional(),
+    }).nullish(),
     skills: z.array(z.object({
       name: z.string(),
-      category: z.string().default("professional"),
-      proficiency: z.number().int().min(1).max(5).default(3),
-      yearsExperience: z.number().int().min(0).optional(),
+      category: z.string().nullish(),
+      proficiency: z.number().int().min(1).max(5).nullish(),
+      yearsExperience: z.number().int().min(0).nullish(),
     })).optional(),
   });
 
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    res.status(400).json({
+      error: "Invalid input",
+      message: `حقول غير صالحة: ${parsed.error.issues.map((issue) => issue.path.join(".") || "body").join(", ")}`,
+      details: parsed.error.issues,
+    });
     return;
   }
 
@@ -160,22 +175,37 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
     return;
   }
 
-  const { skills, ...profileData } = parsed.data;
+  const { skills, preferences, phone, ...profileData } = parsed.data;
 
   const updateData: Record<string, unknown> = { ...profileData };
-  if (profileData.preferences) {
+  if (preferences) {
     updateData.preferences = {
-      industries: profileData.preferences.industries || [],
-      contractTypes: profileData.preferences.contractTypes || [],
-      remote: profileData.preferences.remote || false,
-      salaryMin: profileData.preferences.salaryMin,
+      industries: preferences.industries || [],
+      contractTypes: preferences.contractTypes || [],
+      remote: preferences.remote || false,
+      salaryMin: preferences.salaryMin,
     };
   }
 
-  const updated = await db.update(candidatesTable)
-    .set(updateData)
-    .where(eq(candidatesTable.id, candidate.id))
-    .returning();
+  // A skills-only or phone-only save leaves nothing to update here — an
+  // empty .set() makes drizzle throw, so skip the row update entirely.
+  let saved = candidate;
+  if (Object.keys(updateData).length > 0) {
+    const updated = await db.update(candidatesTable)
+      .set(updateData)
+      .where(eq(candidatesTable.id, candidate.id))
+      .returning();
+    saved = updated[0] ?? candidate;
+  }
+
+  // The phone number lives on the account row, not the candidate profile —
+  // the form edits it, so an absent (undefined) value must leave it alone
+  // while an explicit null clears it.
+  if (phone !== undefined) {
+    await db.update(usersTable)
+      .set({ phone })
+      .where(eq(usersTable.id, req.user!.userId));
+  }
 
   if (skills) {
     await db.delete(candidateSkillsTable).where(eq(candidateSkillsTable.candidateId, candidate.id));
@@ -188,7 +218,7 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
       if (!skillRecord) {
         const inserted = await db.insert(skillsTable).values({
           name: skill.name,
-          category: skill.category as "professional" | "technical" | "soft" | "language",
+          category: (skill.category ?? "professional") as "professional" | "technical" | "soft" | "language",
         }).returning();
         skillRecord = inserted[0];
       }
@@ -196,13 +226,15 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
       await db.insert(candidateSkillsTable).values({
         candidateId: candidate.id,
         skillId: skillRecord.id,
-        proficiency: skill.proficiency,
-        yearsExperience: skill.yearsExperience,
+        // proficiency is NOT NULL — a null (cleared) row falls back to the
+        // table's default of 3 instead of failing the whole save.
+        proficiency: skill.proficiency ?? 3,
+        yearsExperience: skill.yearsExperience ?? null,
       });
     }
   }
 
-  res.json({ ...updated[0], cvStatus: cvStatusOf(updated[0]) });
+  res.json({ ...saved, cvStatus: cvStatusOf(saved) });
 });
 
 router.post("/experience", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {

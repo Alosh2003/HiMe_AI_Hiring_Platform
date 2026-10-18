@@ -791,6 +791,60 @@ describe('assessment redirect banner', () => {
   });
 });
 
+// ─── Profile save ──────────────────────────────────────────────────────────
+
+describe('profile save', () => {
+  it('shows a rejected save inline instead of crashing the form', async () => {
+    setRole('seeker');
+    server.use(
+      http.patch('*/api/candidates/profile', () =>
+        HttpResponse.json(
+          { error: 'Invalid input', message: 'حقول غير صالحة: headline, location' },
+          { status: 400 },
+        ),
+      ),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-save-full-candidate-profile'));
+
+    // The ApiError must land in a visible banner — never an uncaught throw.
+    const banner = await screen.findByTestId('error-save-profile');
+    expect(banner).toHaveTextContent('حقول غير صالحة: headline, location');
+
+    // The form is still mounted, the button is usable again, and the
+    // banner can be dismissed.
+    expect(screen.getByTestId('input-العنوان المهني')).toBeInTheDocument();
+    expect(screen.getByTestId('button-save-full-candidate-profile')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('button-dismiss-save-error'));
+    expect(screen.queryByTestId('error-save-profile')).toBeNull();
+  });
+
+  it('sends the typed phone number and contract preference to the API', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.patch('*/api/candidates/profile', async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({});
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    await screen.findByTestId('button-save-full-candidate-profile');
+    fireEvent.change(screen.getByTestId('input-رقم الهاتف'), { target: { value: '050 555 1234' } });
+    fireEvent.change(screen.getByLabelText('نوع العقد'), { target: { value: 'part-time' } });
+    fireEvent.click(screen.getByTestId('button-save-full-candidate-profile'));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].phone).toBe('050 555 1234');
+    // The UI's single `contract` selection crosses the wire as the API's
+    // `contractTypes` array — previously it was stripped and silently lost.
+    expect((bodies[0].preferences as { contractTypes: string[] }).contractTypes).toEqual(['part-time']);
+    expect(await screen.findByText('تم حفظ الملف')).toBeInTheDocument();
+  });
+});
+
 // ─── CV upload ──────────────────────────────────────────────────────────────
 
 describe('CV upload', () => {
