@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
+import path from "path";
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
@@ -8,7 +9,7 @@ import { authMiddleware, requireRole, type AuthRequest } from "../middleware/aut
 import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
 import { calculateProfileCompletion } from "../ai/llm";
-import { saveFile } from "../services/file-storage";
+import { saveFile, deleteFile } from "../services/file-storage";
 import { parseDocument } from "../services/document-parser";
 
 /** Trim a value and treat "N/A"-style placeholders from the model as absent. */
@@ -55,6 +56,20 @@ const upload = multer({
   },
 });
 
+/** Profile photos: images only, far smaller than a CV. */
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (_req, file, cb) => {
+    if (PHOTO_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("نوع الملف غير مدعوم. المسموح: JPG أو PNG أو WebP"));
+    }
+  },
+});
+
 /**
  * The frontend's CandidateProfile contract expects a `cvStatus` the table
  * doesn't store — derive it: parsed data means analyzed, a stored file
@@ -78,7 +93,7 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
   }
 
   const account = await db.query.usersTable.findFirst({
-    columns: { phone: true },
+    columns: { phone: true, avatarUrl: true },
     where: eq(usersTable.id, req.user!.userId),
   });
 
@@ -113,6 +128,7 @@ router.get("/profile", authMiddleware, requireRole("seeker"), async (req: AuthRe
   res.json({
     ...candidate,
     phone: account?.phone ?? null,
+    avatarUrl: account?.avatarUrl ?? null,
     cvStatus: cvStatusOf(candidate),
     skills: skills.map((s) => {
       const skill = skillMap.get(s.skillId);
@@ -276,7 +292,7 @@ router.post("/education", authMiddleware, requireRole("seeker"), async (req: Aut
     degree: z.string().min(2),
     field: z.string().optional(),
     institution: z.string().min(2),
-    year: z.number().int().min(1950).max(2030),
+    year: z.number().int().min(1950).max(2100),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -300,6 +316,132 @@ router.post("/education", authMiddleware, requireRole("seeker"), async (req: Aut
   }).returning();
 
   res.status(201).json(newEdu[0]);
+});
+
+router.post("/project", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  const schema = z.object({
+    name: z.string().min(2).max(200),
+    description: z.string().max(2000).optional(),
+    url: z.string().max(500).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  const candidate = await db.query.candidatesTable.findFirst({
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+
+  const created = await db.insert(projectsTable).values({
+    candidateId: candidate.id,
+    ...parsed.data,
+  }).returning();
+
+  res.status(201).json(created[0]);
+});
+
+router.post("/certification", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  const schema = z.object({
+    name: z.string().min(2).max(200),
+    issuer: z.string().max(200).optional(),
+    year: z.number().int().min(1950).max(2100).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  const candidate = await db.query.candidatesTable.findFirst({
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+
+  const created = await db.insert(certificationsTable).values({
+    candidateId: candidate.id,
+    ...parsed.data,
+  }).returning();
+
+  res.status(201).json(created[0]);
+});
+
+/**
+ * Uploads a profile photo.
+ *
+ * The file lands in the shared upload dir but is served through the public
+ * /api/avatars route (an <img> tag cannot send an Authorization header).
+ * The extension is derived from the validated mime type — never from the
+ * client-supplied file name.
+ */
+router.post("/photo", authMiddleware, requireRole("seeker"), (req, res, next) => {
+  photoUpload.single("file")(req, res, (err: unknown) => {
+    if (err) {
+      const message = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? "الصورة أكبر من 5 ميغابايت."
+        : err instanceof Error
+          ? err.message
+          : "تعذر رفع الصورة.";
+      res.status(400).json({ error: message });
+      return;
+    }
+    next();
+  });
+}, async (req: AuthRequest, res) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "لم يتم إرفاق صورة." });
+    return;
+  }
+
+  const previous = await db.query.usersTable.findFirst({
+    columns: { avatarUrl: true },
+    where: eq(usersTable.id, req.user!.userId),
+  });
+
+  const ext = file.mimetype === "image/png" ? "png" : file.mimetype === "image/webp" ? "webp" : "jpg";
+  const stored = await saveFile(file.buffer, `avatar.${ext}`, file.mimetype);
+  const avatarUrl = `/api/avatars/${stored.fileName}`;
+
+  await db.update(usersTable)
+    .set({ avatarUrl, updatedAt: new Date() })
+    .where(eq(usersTable.id, req.user!.userId));
+
+  // Best-effort cleanup of the replaced photo.
+  if (previous?.avatarUrl) {
+    await deleteFile(path.basename(previous.avatarUrl));
+  }
+
+  res.status(201).json({ avatarUrl });
+});
+
+router.delete("/photo", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  const previous = await db.query.usersTable.findFirst({
+    columns: { avatarUrl: true },
+    where: eq(usersTable.id, req.user!.userId),
+  });
+
+  await db.update(usersTable)
+    .set({ avatarUrl: null, updatedAt: new Date() })
+    .where(eq(usersTable.id, req.user!.userId));
+
+  if (previous?.avatarUrl) {
+    await deleteFile(path.basename(previous.avatarUrl));
+  }
+
+  res.status(204).end();
 });
 
 // ─── CV Upload with real file parsing ─────────────────────────────────────

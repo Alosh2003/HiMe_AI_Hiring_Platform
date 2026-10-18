@@ -845,6 +845,84 @@ describe('profile save', () => {
   });
 });
 
+// ─── Profile sections & photo ───────────────────────────────────────────────
+
+describe('profile sections', () => {
+  it('adds a work experience through the inline form', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('*/api/candidates/experience', async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ id: 'exp-live', role: 'متدرب تحليل بيانات', company: 'شركة الاختبار', startDate: '2024' }, { status: 201 });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-add-experience'));
+    fireEvent.change(screen.getByTestId('input-experience-role'), { target: { value: 'متدرب تحليل بيانات' } });
+    fireEvent.change(screen.getByTestId('input-experience-company'), { target: { value: 'شركة الاختبار' } });
+    fireEvent.change(screen.getByTestId('input-experience-startDate'), { target: { value: '2024' } });
+    fireEvent.click(screen.getByTestId('button-submit-experience'));
+
+    // The form closes and the created row joins the list.
+    await waitFor(() => expect(screen.queryByTestId('form-experience')).toBeNull());
+    expect(screen.getByText('متدرب تحليل بيانات')).toBeInTheDocument();
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ role: 'متدرب تحليل بيانات', company: 'شركة الاختبار', startDate: '2024' });
+  });
+
+  it('validates the project form before posting, then adds the project', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('*/api/candidates/project', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json({ id: 'prj-live', name: String(body.name ?? ''), description: '' }, { status: 201 });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-add-project'));
+    fireEvent.click(screen.getByTestId('button-submit-project'));
+
+    // Required-field problems are caught in the form — nothing is posted.
+    expect(await screen.findByTestId('error-project')).toHaveTextContent('أكمل الحقول المطلوبة');
+    expect(bodies).toHaveLength(0);
+
+    fireEvent.change(screen.getByTestId('input-project-name'), { target: { value: 'لوحة التحليل' } });
+    fireEvent.click(screen.getByTestId('button-submit-project'));
+    await waitFor(() => expect(screen.queryByTestId('form-project')).toBeNull());
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ name: 'لوحة التحليل' });
+    expect(screen.getByText('لوحة التحليل')).toBeInTheDocument();
+  });
+
+  it('rejects an unsupported photo type and renders an uploaded avatar', async () => {
+    setRole('seeker');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, writable: true, value: vi.fn(() => 'blob:preview') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, writable: true, value: vi.fn() });
+    renderAt('/seeker/profile');
+    const input = await screen.findByTestId('input-profile-photo');
+
+    // An unsupported file is refused before any upload happens.
+    fireEvent.change(input, { target: { files: [new File(['x'], 'cv.pdf', { type: 'application/pdf' })] } });
+    expect(await screen.findByTestId('error-profile-photo')).toHaveTextContent('الصيغ المدعومة');
+
+    // A valid PNG uploads: the img first shows the local preview, then
+    // swaps to the URL the server returned (prefixed with the API base).
+    fireEvent.change(input, { target: { files: [new File(['x'], 'me.png', { type: 'image/png' })] } });
+    await screen.findByTestId('img-profile-avatar', {}, { timeout: 3000 });
+    await waitFor(
+      () => expect(screen.getByTestId('img-profile-avatar'))
+        .toHaveAttribute('src', 'http://localhost:5000/api/avatars/test-avatar.png'),
+      { timeout: 3000 },
+    );
+    expect(screen.queryByTestId('error-profile-photo')).toBeNull();
+  });
+});
+
 // ─── CV upload ──────────────────────────────────────────────────────────────
 
 describe('CV upload', () => {

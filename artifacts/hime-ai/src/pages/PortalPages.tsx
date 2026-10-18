@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
+import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -162,6 +162,127 @@ export function CandidateDashboardPage() {
   </RoleShell>;
 }
 
+type SectionKind = 'experience' | 'education' | 'project' | 'certification';
+
+type AddFormField = { key: string; label: string; type?: 'text' | 'textarea' | 'number' | 'checkbox'; required?: boolean; placeholder?: string };
+
+/**
+ * Inline "add item" form used by the profile's section buttons. Kept local to
+ * the page: each section mounts its own instance, so closing the form resets
+ * the values. Validation errors stay in the form; the caller passes server
+ * failures through so nothing is swallowed.
+ */
+function AddSectionForm({ title, fields, testid, busy, error, onSubmit, onCancel }: {
+  title: string;
+  fields: AddFormField[];
+  testid: string;
+  busy: boolean;
+  error: string;
+  onSubmit: (values: Record<string, string | boolean>) => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
+    Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? false : ''])));
+  const [localError, setLocalError] = useState('');
+  const submit = () => {
+    const missing = fields.filter((field) => field.required && !String(values[field.key] ?? '').trim()).map((field) => field.label);
+    if (missing.length) {
+      setLocalError(`أكمل الحقول المطلوبة: ${missing.join('، ')}`);
+      return;
+    }
+    setLocalError('');
+    onSubmit(values);
+  };
+  return (
+    <div className="mt-5 rounded-xl border border-dashed border-primary/40 bg-secondary/40 p-4" data-testid={`form-${testid}`}>
+      <p className="mb-3 text-sm font-bold">{title}</p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {fields.map((field) => (field.type === 'checkbox' ? (
+          <label key={field.key} className="flex items-center gap-2 text-xs font-semibold md:col-span-2">
+            <input
+              type="checkbox"
+              checked={values[field.key] === true}
+              onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.checked }))}
+              data-testid={`input-${testid}-${field.key}`}
+            />
+            {field.label}
+          </label>
+        ) : (
+          <label key={field.key} className="block text-xs font-semibold">
+            {field.label}{field.required && <span className="text-destructive"> *</span>}
+            {field.type === 'textarea' ? (
+              <textarea
+                value={values[field.key] as string}
+                onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                placeholder={field.placeholder}
+                className="mt-1.5 min-h-20 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal shadow-sm"
+                data-testid={`input-${testid}-${field.key}`}
+              />
+            ) : (
+              <input
+                type={field.type === 'number' ? 'number' : 'text'}
+                value={values[field.key] as string}
+                onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                placeholder={field.placeholder}
+                className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal shadow-sm"
+                data-testid={`input-${testid}-${field.key}`}
+              />
+            )}
+          </label>
+        )))}
+      </div>
+      {(localError || error) && (
+        <p role="alert" className="mt-3 text-xs font-semibold text-destructive" data-testid={`error-${testid}`}>{localError || error}</p>
+      )}
+      <div className="mt-4 flex gap-2">
+        <Button type="button" onClick={submit} disabled={busy} data-testid={`button-submit-${testid}`}>{busy ? 'جارٍ الإضافة…' : 'حفظ'}</Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={busy} data-testid={`button-cancel-${testid}`}>إلغاء</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Field layouts for each add form. */
+const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[] }> = {
+  experience: {
+    title: 'إضافة خبرة عملية',
+    fields: [
+      { key: 'role', label: 'المسمى الوظيفي', required: true },
+      { key: 'company', label: 'جهة العمل', required: true },
+      { key: 'location', label: 'الموقع' },
+      { key: 'startDate', label: 'سنة البداية', required: true, placeholder: '2021' },
+      { key: 'endDate', label: 'سنة النهاية', placeholder: '2023 (اتركها فارغة إن كانت حالياً)' },
+      { key: 'current', label: 'أعمل هنا حالياً', type: 'checkbox' },
+      { key: 'description', label: 'وصف المهام', type: 'textarea' },
+    ],
+  },
+  education: {
+    title: 'إضافة مؤهل تعليمي',
+    fields: [
+      { key: 'degree', label: 'الدرجة', required: true },
+      { key: 'field', label: 'التخصص' },
+      { key: 'institution', label: 'الجهة التعليمية', required: true },
+      { key: 'year', label: 'سنة التخرج', type: 'number', required: true, placeholder: '2020' },
+    ],
+  },
+  project: {
+    title: 'إضافة مشروع',
+    fields: [
+      { key: 'name', label: 'اسم المشروع', required: true },
+      { key: 'url', label: 'رابط المشروع' },
+      { key: 'description', label: 'الوصف', type: 'textarea' },
+    ],
+  },
+  certification: {
+    title: 'إضافة شهادة',
+    fields: [
+      { key: 'name', label: 'اسم الشهادة', required: true },
+      { key: 'issuer', label: 'الجهة المانحة' },
+      { key: 'year', label: 'سنة الحصول عليها', type: 'number', placeholder: '2024' },
+    ],
+  },
+};
+
 export function CandidateProfilePage() {
   const { data, loading } = useDemo(demoApi.getProfile, []);
   const { user } = useAuth();
@@ -170,6 +291,12 @@ export function CandidateProfilePage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [section, setSection] = useState<'' | SectionKind>('');
+  const [sectionBusy, setSectionBusy] = useState(false);
+  const [sectionError, setSectionError] = useState('');
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   if (loading || (!data && !draft)) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
   const profile = draft || data!;
   const update = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K]) => { setDraft({ ...profile, [key]: value }); setSaved(false); setSaveError(''); };
@@ -195,6 +322,89 @@ export function CandidateProfilePage() {
     }
   };
   const addSkill = () => { if (!newSkill.trim()) return; update('skills', [...profile.skills, { id: `skill-${Date.now()}`, name: newSkill.trim(), category: 'professional' }]); setNewSkill(''); };
+  // Section items and the avatar are persisted by their own endpoints the
+  // moment they succeed — update their draft slice without marking the main
+  // حفظ الملف form as dirty.
+  const setPersistedList = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K]) => setDraft({ ...profile, [key]: value });
+  const toggleSection = (kind: SectionKind) => { setSection((current) => (current === kind ? '' : kind)); setSectionError(''); };
+  const addSectionItem = async (kind: SectionKind, values: Record<string, string | boolean>) => {
+    setSectionBusy(true);
+    setSectionError('');
+    try {
+      if (kind === 'experience') {
+        const created = await demoApi.addExperience({
+          role: String(values.role),
+          company: String(values.company),
+          location: String(values.location ?? '') || undefined,
+          startDate: String(values.startDate),
+          endDate: values.current ? undefined : (String(values.endDate ?? '') || undefined),
+          current: values.current === true,
+          description: String(values.description ?? '') || undefined,
+        });
+        setPersistedList('experiences', [...profile.experiences, created]);
+      } else if (kind === 'education') {
+        const created = await demoApi.addEducation({
+          degree: String(values.degree),
+          field: String(values.field ?? '') || undefined,
+          institution: String(values.institution),
+          year: Number(values.year),
+        });
+        setPersistedList('education', [...profile.education, created]);
+      } else if (kind === 'project') {
+        const created = await demoApi.addProject({
+          name: String(values.name),
+          url: String(values.url ?? '') || undefined,
+          description: String(values.description ?? '') || undefined,
+        });
+        setPersistedList('projects', [...profile.projects, created]);
+      } else {
+        const created = await demoApi.addCertification({
+          name: String(values.name),
+          issuer: String(values.issuer ?? '') || undefined,
+          year: values.year ? Number(values.year) : undefined,
+        });
+        setPersistedList('certifications', [...profile.certifications, created]);
+      }
+      setSection('');
+    } catch (err) {
+      setSectionError(err instanceof Error ? err.message : 'تعذر حفظ العنصر — أعد المحاولة.');
+    } finally {
+      setSectionBusy(false);
+    }
+  };
+  const onPhotoSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // re-picking the same file must fire again
+    if (!file) return;
+    setPhotoError('');
+    setPhotoBusy(true);
+    const preview = URL.createObjectURL(file);
+    setPhotoPreview(preview);
+    try {
+      const avatarUrl = await demoApi.uploadAvatar(file);
+      // Saved server-side already — no need to touch the حفظ button state.
+      setDraft({ ...profile, avatarUrl });
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'تعذر رفع الصورة — حاول مرة أخرى.');
+    } finally {
+      URL.revokeObjectURL(preview);
+      setPhotoPreview(null);
+      setPhotoBusy(false);
+    }
+  };
+  const removePhoto = async () => {
+    setPhotoError('');
+    setPhotoBusy(true);
+    try {
+      await demoApi.removeAvatar();
+      setDraft({ ...profile, avatarUrl: null });
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'تعذر حذف الصورة — حاول مرة أخرى.');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+  const avatarSrc = photoPreview ?? demoApi.fileSrc(profile.avatarUrl);
   return <RoleShell role="seeker">
     <PageHeader eyebrow="الملف المهني" title="كل ما تحتاجه الشركات لفهم مسارك." description="تحكم في قصتك المهنية، من العنوان الأول إلى تفضيلاتك للخطوة القادمة." action={<Button onClick={save} disabled={saving} data-testid="button-save-full-candidate-profile">{saving ? <Clock3 className="h-4 w-4" /> : saved ? <CheckCircle2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}{saving ? 'جارٍ الحفظ…' : saved ? 'تم حفظ الملف' : 'حفظ الملف'}</Button>} />
     {saveError && (
@@ -204,13 +414,19 @@ export function CandidateProfilePage() {
       </div>
     )}
     <WorkflowGuide role="seeker" current="profile" />
-    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="grid h-16 w-16 place-items-center rounded-2xl bg-primary text-xl font-bold text-primary-foreground">{initials(user?.name)}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · متاح لفرص جديدة</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="sm" /><div><p className="text-xs text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">أضف مشروعاً لرفع النتيجة</p></div></div></div>
+    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="relative"><div data-testid="box-profile-avatar" className="h-16 w-16 overflow-hidden rounded-2xl">{avatarSrc ? <img src={avatarSrc} alt={user?.name ?? ''} className="h-16 w-16 object-cover" data-testid="img-profile-avatar" /> : <div className="grid h-16 w-16 place-items-center bg-primary text-xl font-bold text-primary-foreground">{initials(user?.name)}</div>}</div><label title="تغيير صورة الملف" className="absolute -bottom-1.5 -end-1.5 grid h-7 w-7 cursor-pointer place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:bg-muted" data-testid="label-upload-photo"><Camera className="h-3.5 w-3.5" /><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelected} disabled={photoBusy} data-testid="input-profile-photo" aria-label="رفع صورة الملف الشخصي" /></label>{profile.avatarUrl && !photoBusy && <button type="button" onClick={removePhoto} aria-label="إزالة الصورة" title="إزالة الصورة" className="absolute -top-1.5 -end-1.5 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground shadow-sm hover:text-destructive" data-testid="button-remove-photo">×</button>}{photoBusy && <span className="absolute inset-0 grid place-items-center rounded-2xl bg-background/60"><Clock3 className="h-5 w-5 animate-spin text-primary" /></span>}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · متاح لفرص جديدة</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="sm" /><div><p className="text-xs text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">أضف مشروعاً لرفع النتيجة</p></div></div></div>
+    {photoError && (
+      <div role="alert" data-testid="error-profile-photo" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
+        <span>{photoError}</span>
+        <button type="button" onClick={() => setPhotoError('')} className="text-xs font-bold underline opacity-80 hover:opacity-100">إخفاء</button>
+      </div>
+    )}
     <div className="grid gap-6 xl:grid-cols-[1fr_300px]"><div className="space-y-6">
       <Card><CardHeader><CardTitle className="text-base">المعلومات الشخصية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2"><Field label="العنوان المهني" value={profile.headline} onChange={(value) => update('headline', value)} /><Field label="الموقع" value={profile.location} onChange={(value) => update('location', value)} /><Field label="رقم الهاتف" value={profile.phone} onChange={(value) => update('phone', value)} /><Field label="البريد الإلكتروني" value={user?.email ?? ''} onChange={() => undefined} /><div className="md:col-span-2"><Field label="الملخص المهني" value={profile.summary} onChange={(value) => update('summary', value)} multiline /></div></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">المهارات</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2">{profile.skills.map((skill: import('@/types').Skill) => <span key={skill.id} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{skill.name}<button onClick={() => update('skills', profile.skills.filter((item: import('@/types').Skill) => item.id !== skill.id))} aria-label={`إزالة ${skill.name}`} className="text-primary/60 hover:text-destructive">×</button></span>)}</div><div className="mt-5 flex max-w-md gap-2"><Input value={newSkill} onChange={(event) => setNewSkill(event.target.value)} placeholder="أضف مهارة جديدة" data-testid="input-new-candidate-skill" /><Button type="button" variant="outline" onClick={addSkill} data-testid="button-add-candidate-skill"><Plus className="h-4 w-4" />إضافة</Button></div></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">الخبرة العملية</CardTitle></CardHeader><CardContent className="space-y-6">{profile.experiences.map((item) => <div key={item.id} className="relative flex gap-4 border-s border-border ps-5 last:border-s-0"><span className="absolute -start-1.5 top-1 h-3 w-3 rounded-full bg-accent" /><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{item.role}</p><span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{item.startDate} — {item.endDate}</span></div><p className="mt-1 text-xs text-muted-foreground">{item.company} · {item.location}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p></div></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة خبرة</Button></CardContent></Card>
-      <div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">التعليم</CardTitle></CardHeader><CardContent className="space-y-4">{profile.education.map((item) => <div key={item.id} className="rounded-xl bg-secondary/60 p-4"><p className="font-bold">{item.degree}</p><p className="mt-1 text-xs text-muted-foreground">{item.field}</p><p className="mt-2 text-xs">{item.institution} · {item.year}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة تعليم</Button></CardContent></Card><Card><CardHeader><CardTitle className="text-base">المشاريع</CardTitle></CardHeader><CardContent className="space-y-4">{profile.projects.map((item) => <div key={item.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between"><p className="font-bold">{item.name}</p><Globe2 className="h-4 w-4 text-primary" /></div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed"><Plus className="h-4 w-4" />إضافة مشروع</Button></CardContent></Card></div>
-      <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div></div>)}<Button type="button" variant="outline" className="border-dashed"><Plus className="h-4 w-4" />إضافة شهادة</Button></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">الخبرة العملية</CardTitle></CardHeader><CardContent className="space-y-6">{profile.experiences.map((item) => <div key={item.id} className="relative flex gap-4 border-s border-border ps-5 last:border-s-0"><span className="absolute -start-1.5 top-1 h-3 w-3 rounded-full bg-accent" /><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{item.role}</p><span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{item.startDate} — {item.endDate}</span></div><p className="mt-1 text-xs text-muted-foreground">{item.company} · {item.location}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p></div></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('experience')} aria-expanded={section === 'experience'} data-testid="button-add-experience"><Plus className="h-4 w-4" />إضافة خبرة</Button>{section === 'experience' && <AddSectionForm title={SECTION_FORMS.experience.title} fields={SECTION_FORMS.experience.fields} testid="experience" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('experience', values)} onCancel={() => setSection('')} />}</CardContent></Card>
+      <div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">التعليم</CardTitle></CardHeader><CardContent className="space-y-4">{profile.education.map((item) => <div key={item.id} className="rounded-xl bg-secondary/60 p-4"><p className="font-bold">{item.degree}</p><p className="mt-1 text-xs text-muted-foreground">{item.field}</p><p className="mt-2 text-xs">{item.institution} · {item.year}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('education')} aria-expanded={section === 'education'} data-testid="button-add-education"><Plus className="h-4 w-4" />إضافة تعليم</Button>{section === 'education' && <AddSectionForm title={SECTION_FORMS.education.title} fields={SECTION_FORMS.education.fields} testid="education" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('education', values)} onCancel={() => setSection('')} />}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">المشاريع</CardTitle></CardHeader><CardContent className="space-y-4">{profile.projects.map((item) => <div key={item.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between"><p className="font-bold">{item.name}</p><Globe2 className="h-4 w-4 text-primary" /></div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('project')} aria-expanded={section === 'project'} data-testid="button-add-project"><Plus className="h-4 w-4" />إضافة مشروع</Button>{section === 'project' && <AddSectionForm title={SECTION_FORMS.project.title} fields={SECTION_FORMS.project.fields} testid="project" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('project', values)} onCancel={() => setSection('')} />}</CardContent></Card></div>
+      <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div></div>)}<Button type="button" variant="outline" className="border-dashed" onClick={() => toggleSection('certification')} aria-expanded={section === 'certification'} data-testid="button-add-certification"><Plus className="h-4 w-4" />إضافة شهادة</Button>{section === 'certification' && <AddSectionForm title={SECTION_FORMS.certification.title} fields={SECTION_FORMS.certification.fields} testid="certification" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('certification', values)} onCancel={() => setSection('')} />}</CardContent></Card>
     </div><div className="space-y-6">
       <Card className="bg-secondary/50"><CardHeader><CardTitle className="text-base">تفضيلات العمل</CardTitle></CardHeader><CardContent className="space-y-4"><label className="block text-xs font-semibold">المجالات المفضلة<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.industries[0] ?? ''} onChange={(event) => update('preferences', { ...profile.preferences, industries: [event.target.value] })}><option>تقنية المعلومات</option><option>التقنية المالية</option><option>الاستشارات</option></select></label><label className="block text-xs font-semibold">نوع العقد<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.contract} onChange={(event) => update('preferences', { ...profile.preferences, contract: event.target.value as CandidateProfile['preferences']['contract'] })}><option value="full-time">دوام كامل</option><option value="part-time">دوام جزئي</option><option value="contract">عقد مستقل</option></select></label><label className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-xs"><span><span className="block font-bold">العمل عن بعد</span><span className="mt-1 block text-muted-foreground">أظهر فرص العمل المرنة</span></span><input type="checkbox" checked={profile.preferences.remote} onChange={(event) => update('preferences', { ...profile.preferences, remote: event.target.checked })} /></label></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">السيرة الذاتية</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{profile.cvStatus !== 'missing' ? 'السيرة المرفوعة' : 'لم تُرفع سيرة بعد'}</p><p className="mt-1 text-xs text-muted-foreground">{profile.cvStatus === 'analyzed' ? 'تم التحليل — راجع المعلومات المستخرجة' : 'ارفع سيرتك من صفحة السيرة الذاتية'}</p></div></div><Link href="/seeker/cv" className="mt-5 block rounded-lg border border-border px-3 py-2.5 text-center text-xs font-bold hover:bg-muted">مراجعة السيرة</Link></CardContent></Card>

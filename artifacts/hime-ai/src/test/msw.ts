@@ -219,6 +219,30 @@ export const handlers = [
     await delay(10);
     return HttpResponse.json(candidate);
   }),
+  http.post('*/api/candidates/experience', async ({ request }) => {
+    await delay(10);
+    return HttpResponse.json({ id: 'exp-new', ...(await request.json() as object) }, { status: 201 });
+  }),
+  http.post('*/api/candidates/education', async ({ request }) => {
+    await delay(10);
+    return HttpResponse.json({ id: 'edu-new', ...(await request.json() as object) }, { status: 201 });
+  }),
+  http.post('*/api/candidates/project', async ({ request }) => {
+    await delay(10);
+    return HttpResponse.json({ id: 'prj-new', ...(await request.json() as object) }, { status: 201 });
+  }),
+  http.post('*/api/candidates/certification', async ({ request }) => {
+    await delay(10);
+    return HttpResponse.json({ id: 'cert-new', ...(await request.json() as object) }, { status: 201 });
+  }),
+  http.post('*/api/candidates/photo', async () => {
+    await delay(10);
+    return HttpResponse.json({ avatarUrl: '/api/avatars/test-avatar.png' }, { status: 201 });
+  }),
+  http.delete('*/api/candidates/photo', async () => {
+    await delay(10);
+    return new HttpResponse(null, { status: 204 });
+  }),
   http.post('*/api/candidates/cv', async () => {
     await delay(50);
     // Mirrors the real response: the parsed CV plus the updated profile.

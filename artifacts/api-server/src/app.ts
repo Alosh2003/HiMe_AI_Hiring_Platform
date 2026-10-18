@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { sanitizeBody, sanitizeQuery } from "./middleware/sanitizer";
 import router from "./routes";
 import filesRouter from "./routes/files";
+import avatarsRouter from "./routes/avatars";
 import { logger } from "./lib/logger";
 
 const config = getConfig();
@@ -104,6 +105,9 @@ app.get("/api/openapi.json", (_req, res) => {
   }
   res.json(openapiCache);
 });
+
+// Profile photos — public, but only ever files an avatar_url points at.
+app.use("/api/avatars", avatarsRouter);
 
 // API routes
 app.use("/api", router);

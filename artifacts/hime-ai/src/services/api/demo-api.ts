@@ -1,4 +1,4 @@
-import type { Application, ApplicationStatus, CandidateProfile, Company, ContractType, Job, MatchBreakdown, MatchResult, Skill, User, VerificationStatus } from '@/types';
+import type { Application, ApplicationStatus, CandidateProfile, Certification, Company, ContractType, Education, Experience, Job, MatchBreakdown, MatchResult, Project, Skill, User, VerificationStatus } from '@/types';
 import { formatRelative, formatSalary } from '@/lib/format';
 
 // ─── Demo data (fallback when API is unavailable) ──────────────────────────
@@ -197,6 +197,7 @@ type ApiProfile = Omit<CandidateProfile, 'headline' | 'summary' | 'location' | '
   summary: string | null;
   location: string | null;
   phone?: string | null;
+  avatarUrl?: string | null;
   preferences?: { industries?: string[]; contractTypes?: string[]; remote?: boolean } | null;
 };
 
@@ -211,6 +212,7 @@ function normalizeProfile(raw: ApiProfile): CandidateProfile {
     summary: raw.summary ?? '',
     location: raw.location ?? '',
     phone: raw.phone ?? '',
+    avatarUrl: raw.avatarUrl ?? null,
     skills: raw.skills ?? [],
     experiences: raw.experiences ?? [],
     education: raw.education ?? [],
@@ -252,6 +254,84 @@ export async function updateProfile(data: Partial<CandidateProfile>) {
   await wait();
   Object.assign(demoProfile, data);
   return demoProfile;
+}
+
+/**
+ * Prefixes a stored file path (e.g. an avatar URL) with the API origin.
+ * <img> sources don't pass through apiRequest's baseUrl handling, so they
+ * need the same treatment the fetch calls get.
+ */
+export function fileSrc(path?: string | null): string | null {
+  if (!path) return null;
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+  return `${base}${path}`;
+}
+
+const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+export async function uploadAvatar(file: File): Promise<string> {
+  if (!AVATAR_TYPES.includes(file.type)) throw new Error('الصيغ المدعومة: JPG أو PNG أو WebP.');
+  if (file.size > AVATAR_MAX_BYTES) throw new Error('حجم الصورة أكبر من 5 ميغابايت.');
+  if (hasApi()) {
+    const form = new FormData();
+    form.append('file', file);
+    const data = await apiRequest<{ avatarUrl: string }>('/candidates/photo', { method: 'POST', body: form });
+    return data.avatarUrl;
+  }
+  await wait();
+  // Local fallback: a clearly-generic placeholder, never a fake portrait.
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#123e43"/><text x="32" y="40" font-size="22" text-anchor="middle" fill="#f2c66d" font-family="sans-serif">HI</text></svg>',
+  );
+}
+
+export async function removeAvatar(): Promise<void> {
+  if (hasApi()) {
+    await apiRequest<void>('/candidates/photo', { method: 'DELETE' });
+    return;
+  }
+  await wait();
+  demoProfile.avatarUrl = null;
+}
+
+// ─── Profile sections (experience / education / projects / certifications) ──
+
+export interface ExperienceInput { role: string; company: string; location?: string; description?: string; startDate: string; endDate?: string; current?: boolean; }
+export interface EducationInput { degree: string; field?: string; institution: string; year: number; }
+export interface ProjectInput { name: string; description?: string; url?: string; }
+export interface CertificationInput { name: string; issuer?: string; year?: number; }
+
+export async function addExperience(input: ExperienceInput) {
+  if (hasApi()) return apiRequest<Experience>('/candidates/experience', { method: 'POST', body: JSON.stringify(input) });
+  await wait();
+  const created = { id: `exp-${Date.now()}`, location: '', description: '', ...input } as Experience;
+  demoProfile.experiences = [created, ...demoProfile.experiences];
+  return created;
+}
+
+export async function addEducation(input: EducationInput) {
+  if (hasApi()) return apiRequest<Education>('/candidates/education', { method: 'POST', body: JSON.stringify(input) });
+  await wait();
+  const created = { id: `edu-${Date.now()}`, field: '', ...input } as unknown as Education;
+  demoProfile.education = [created, ...demoProfile.education];
+  return created;
+}
+
+export async function addProject(input: ProjectInput) {
+  if (hasApi()) return apiRequest<Project>('/candidates/project', { method: 'POST', body: JSON.stringify(input) });
+  await wait();
+  const created = { id: `prj-${Date.now()}`, skills: [], ...input } as Project;
+  demoProfile.projects = [created, ...demoProfile.projects];
+  return created;
+}
+
+export async function addCertification(input: CertificationInput) {
+  if (hasApi()) return apiRequest<Certification>('/candidates/certification', { method: 'POST', body: JSON.stringify(input) });
+  await wait();
+  const created = { id: `cert-${Date.now()}`, issuer: '', ...input } as unknown as Certification;
+  demoProfile.certifications = [created, ...demoProfile.certifications];
+  return created;
 }
 
 /**

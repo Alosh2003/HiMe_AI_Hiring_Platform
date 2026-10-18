@@ -9,6 +9,7 @@ import { LanguageSwitch, Logo } from '@/components/app-kit';
 import { NotificationBell } from '@/components/notification-bell';
 import { useLanguage } from '@/i18n';
 import { useAuth } from '@/contexts/auth-context';
+import { fileSrc } from '@/services/api/demo-api';
 import { initials } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -108,6 +109,8 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
   // The signed-in identity — never a hardcoded persona. Falls back to the
   // role's generic label when the session has no stored name.
   const displayName = user?.name?.trim() || content.name;
+  // Show the uploaded photo wherever the initials box used to stand alone.
+  const userAvatar = fileSrc(user?.avatarUrl);
   const avatar = initials(displayName);
   const firstName = displayName.split(' ')[0];
 
@@ -162,7 +165,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
             <div className="rounded-2xl border border-white/10 bg-sidebar-accent p-4">
               <div className="mb-3 flex items-center gap-2 text-xs text-sidebar-foreground/60"><span className="h-2 w-2 rounded-full bg-[#f2c66d]" />{content.account}</div>
               <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]">{avatar}</div>
+                <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]">{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} data-testid="img-sidebar-avatar" />}</div>
                 <div className="min-w-0"><p className="truncate text-sm font-bold">{displayName}</p><p className="mt-1 text-[11px] text-sidebar-foreground/50">{role === 'admin' ? 'مدير المنصة' : role === 'company' ? 'حساب موثق' : 'باحث عن فرصة'}</p></div>
               </div>
             </div>
@@ -170,7 +173,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
         )}
         {folded && (
           <div className="flex shrink-0 justify-center pb-4 pt-2">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]" title={displayName}>{avatar}</div>
+            <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]" title={displayName}>{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
           </div>
         )}
 
@@ -221,7 +224,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
             >
               <LogOut className="h-4 w-4" />
             </button>
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{avatar}</div>
+            <div className="relative"><div className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-9 w-9 rounded-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
           </div>
         </header>
         <main className="mx-auto max-w-[1500px] p-4 md:p-8">{children}</main>

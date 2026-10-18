@@ -9,7 +9,7 @@ export interface Experience { id: string; role: string; company: string; locatio
 export interface Education { id: string; institution: string; degree: string; field: string; year: string; }
 export interface Project { id: string; name: string; description: string; url?: string; skills: string[]; }
 export interface Certification { id: string; name: string; issuer: string; year: string; }
-export interface CandidateProfile { id: string; userId: string; headline: string; summary: string; location: string; phone: string; skills: Skill[]; experiences: Experience[]; education: Education[]; projects: Project[]; certifications: Certification[]; completion: number; cvStatus: 'missing' | 'processing' | 'analyzed' | 'failed'; preferences: { industries: string[]; locations: string[]; contract: ContractType; remote: boolean; }; }
+export interface CandidateProfile { id: string; userId: string; headline: string; summary: string; location: string; phone: string; avatarUrl?: string | null; skills: Skill[]; experiences: Experience[]; education: Education[]; projects: Project[]; certifications: Certification[]; completion: number; cvStatus: 'missing' | 'processing' | 'analyzed' | 'failed'; preferences: { industries: string[]; locations: string[]; contract: ContractType; remote: boolean; }; }
 export type VerificationStatus = 'draft' | 'pending' | 'verified' | 'rejected';
 
 export interface CvAssessment {
