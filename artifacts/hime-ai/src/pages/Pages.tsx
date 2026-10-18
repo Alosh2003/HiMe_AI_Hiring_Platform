@@ -420,7 +420,7 @@ function RecommendationCard({ match }: { match: MatchResult }) {
             <span className="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/20">
               <Sparkles className={`h-4 w-4 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110 ${coachBusy ? 'animate-pulse' : ''}`} />
             </span>
-            <span>{coachBusy ? 'جارٍ تحضير الخطة…' : coach ? 'إخفاء خطة التحسين' : 'كيف أرتفع مطابقتي؟'}</span>
+            <span>{coachBusy ? 'جارٍ تحضير الخطة…' : coach ? 'إخفاء خطة التحسين' : 'خطة تحسين نسبة المطابقة'}</span>
           </Button>
 
           {coachError && (
@@ -485,8 +485,13 @@ function RecommendationCard({ match }: { match: MatchResult }) {
             </div>
           )}
 
-          <Link href={`/jobs/${jobId}`} className="mt-5 inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid={`link-recommendation-${match.id}`}>
-            عرض الوظيفة <ArrowUpLeft className="h-3.5 w-3.5" />
+          <Link
+            href={`/jobs/${jobId}`}
+            className="group mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-primary/35 bg-background px-4 py-3 text-xs font-bold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/70 hover:bg-primary/10 hover:shadow-md active:translate-y-0"
+            data-testid={`link-recommendation-${match.id}`}
+          >
+            عرض الوظيفة
+            <ArrowUpLeft className="h-4 w-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:-translate-x-0.5" />
           </Link>
         </div>
       </CardContent>

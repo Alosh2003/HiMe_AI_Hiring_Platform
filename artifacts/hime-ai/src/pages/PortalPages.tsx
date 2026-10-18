@@ -99,9 +99,10 @@ function CvInsightsCard({ completion }: { completion: number }) {
           </Link>
           <Link
             href="/seeker/cv"
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"
+            className="group inline-flex items-center justify-center gap-2 rounded-lg border-2 border-primary/35 bg-background px-4 py-2.5 text-sm font-bold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-primary/10 hover:shadow-md active:translate-y-0"
             data-testid="link-insights-upload"
           >
+            <FileText className="h-4 w-4 transition-transform duration-300 group-hover:scale-110" />
             {assessment ? 'أعد التقييم' : 'ارفع سيرتك'}
           </Link>
         </div>
