@@ -84,14 +84,6 @@ export function HomePage() {
                   {t('company')} <ArrowUpLeft className="h-4 w-4" />
                 </Link>
               </div>
-              <Link
-                href="/assess"
-                className="mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-5 py-2.5 text-xs font-bold text-accent-foreground hover:bg-accent/20"
-                data-testid="link-hero-assess"
-              >
-                <Sparkles className="h-4 w-4" />
-                قيّم سيرتك الآن — بدون تسجيل
-              </Link>
               <div className="mt-9 flex items-center gap-6 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" />بياناتك ملكك</span>
                 <span className="inline-flex items-center gap-2"><HeartHandshake className="h-4 w-4 text-primary" />قرارات أكثر إنصافاً</span>
@@ -99,36 +91,49 @@ export function HomePage() {
             </div>
             <div className="relative animate-rise delay-2">
               <div className="absolute -inset-10 rounded-full bg-accent/10 blur-3xl" />
-              <Card className="relative overflow-hidden border-primary/20 bg-card/90 p-2 shadow-2xl shadow-primary/10">
-                <div className="rounded-xl bg-sidebar p-6 text-sidebar-foreground md:p-8">
-                  <div className="mb-8 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-sidebar-foreground/60">نتيجة المطابقة</p>
-                      <p className="mt-1 text-lg font-bold">مصمم تجربة مستخدم أول</p>
+              {/* The showcase card IS the CTA: hover lights the accents and lifts it, click starts the free assessment. */}
+              <Link
+                href="/assess"
+                data-testid="link-hero-assess"
+                className="group block rounded-xl focus-visible:ring-2 focus-visible:ring-[#f2c66d] focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+              >
+                <Card className="relative overflow-hidden border-primary/20 bg-card/90 p-2 shadow-2xl shadow-primary/10 transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-[#f2c66d]/45 group-hover:shadow-[0_30px_60px_-25px_rgba(242,198,109,0.5)]">
+                  <div className="rounded-xl bg-sidebar p-6 text-sidebar-foreground md:p-8">
+                    <div className="mb-8 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-sidebar-foreground/60">نتيجة المطابقة</p>
+                        <p className="mt-1 text-lg font-bold">مصمم تجربة مستخدم أول</p>
+                      </div>
+                      <span className="rounded-full bg-[#f2c66d]/15 px-3 py-1.5 text-xs font-bold text-[#f2c66d] transition-colors duration-300 group-hover:bg-[#f2c66d]/25">مقترحة لك</span>
                     </div>
-                    <span className="rounded-full bg-[#f2c66d]/15 px-3 py-1.5 text-xs font-bold text-[#f2c66d]">مقترحة لك</span>
-                  </div>
-                  <div className="flex items-center gap-6">
-                    <ScoreRing score={92} size="lg" />
-                    <div className="flex-1 space-y-4">
-                      {[['المهارات', 94], ['الخبرة', 90], ['السياق العام', 95]].map(([label, score]) => (
-                        <div key={label as string}>
-                          <div className="mb-1 flex justify-between text-xs">
-                            <span className="text-sidebar-foreground/70">{label}</span>
-                            <span className="font-bold text-[#f2c66d]">{score}%</span>
+                    <div className="flex items-center gap-6">
+                      <ScoreRing score={92} size="lg" />
+                      <div className="flex-1 space-y-4">
+                        {[['المهارات', 94], ['الخبرة', 90], ['السياق العام', 95]].map(([label, score]) => (
+                          <div key={label as string}>
+                            <div className="mb-1 flex justify-between text-xs">
+                              <span className="text-sidebar-foreground/70">{label}</span>
+                              <span className="font-bold text-[#f2c66d]">{score}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-white/10">
+                              <div className="h-full rounded-full bg-[#f2c66d] transition-all duration-300 group-hover:shadow-[0_0_10px_rgba(242,198,109,0.85)]" style={{ width: `${score}%` }} />
+                            </div>
                           </div>
-                          <div className="h-1.5 rounded-full bg-white/10">
-                            <div className="h-full rounded-full bg-[#f2c66d]" style={{ width: `${score}%` }} />
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
+                    {/* Free-assessment CTA — the slot the sample explanation used to occupy. */}
+                    <span
+                      className="mt-8 flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-br from-[#f2c66d] via-[#f2c66d] to-[#f2c66d]/70 text-sm font-bold text-[#17282b] shadow-[0_12px_28px_-12px_rgba(242,198,109,0.9)] transition-all duration-300 group-hover:shadow-[0_18px_40px_-12px_rgba(242,198,109,1)]"
+                      data-testid="cta-hero-assess"
+                    >
+                      <Sparkles className="h-4 w-4 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
+                      قيّم سيرتك الآن — بدون تسجيل
+                      <ArrowUpLeft className="h-4 w-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:-translate-x-0.5" />
+                    </span>
                   </div>
-                  <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs leading-6 text-sidebar-foreground/70">«خبرتك في البحث وتصميم الأنظمة تتوافق بقوة مع احتياج الفريق.»</p>
-                  </div>
-                </div>
-              </Card>
+                </Card>
+              </Link>
             </div>
           </div>
         </section>
