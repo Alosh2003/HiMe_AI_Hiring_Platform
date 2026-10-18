@@ -297,6 +297,7 @@ export function CandidateProfilePage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [reassess, setReassess] = useState<demoApi.Reassessment | null>(null);
   if (loading || (!data && !draft)) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
   const profile = draft || data!;
   const update = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K]) => { setDraft({ ...profile, [key]: value }); setSaved(false); setSaveError(''); };
@@ -304,8 +305,14 @@ export function CandidateProfilePage() {
     setSaving(true);
     setSaveError('');
     try {
-      await demoApi.updateProfile(profile);
+      const updated = await demoApi.updateProfile(profile);
       setSaved(true);
+      // The server reassessed the profile (completion + stored match scores)
+      // — adopt the fresh completion so the dashboard shows the new number.
+      if (updated?.reassessment) {
+        setReassess(updated.reassessment);
+        setDraft({ ...profile, completion: updated.reassessment.completion });
+      }
     } catch (error) {
       // A rejected save must stay on the page and explain itself — an
       // uncaught ApiError here used to blow up into an error overlay.
@@ -324,15 +331,18 @@ export function CandidateProfilePage() {
   const addSkill = () => { if (!newSkill.trim()) return; update('skills', [...profile.skills, { id: `skill-${Date.now()}`, name: newSkill.trim(), category: 'professional' }]); setNewSkill(''); };
   // Section items and the avatar are persisted by their own endpoints the
   // moment they succeed — update their draft slice without marking the main
-  // حفظ الملف form as dirty.
-  const setPersistedList = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K]) => setDraft({ ...profile, [key]: value });
+  // حفظ الملف form as dirty. The reassessment's new completion rides along in
+  // the same write so it can never clobber the list that was just appended.
+  const setPersistedList = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K], completion?: number) =>
+    setDraft({ ...profile, [key]: value, ...(typeof completion === 'number' ? { completion } : {}) });
   const toggleSection = (kind: SectionKind) => { setSection((current) => (current === kind ? '' : kind)); setSectionError(''); };
   const addSectionItem = async (kind: SectionKind, values: Record<string, string | boolean>) => {
     setSectionBusy(true);
     setSectionError('');
     try {
+      let reassessment: demoApi.Reassessment | undefined;
       if (kind === 'experience') {
-        const created = await demoApi.addExperience({
+        const item = await demoApi.addExperience({
           role: String(values.role),
           company: String(values.company),
           location: String(values.location ?? '') || undefined,
@@ -341,30 +351,37 @@ export function CandidateProfilePage() {
           current: values.current === true,
           description: String(values.description ?? '') || undefined,
         });
-        setPersistedList('experiences', [...profile.experiences, created]);
+        reassessment = item.reassessment;
+        setPersistedList('experiences', [...profile.experiences, item], reassessment?.completion);
       } else if (kind === 'education') {
-        const created = await demoApi.addEducation({
+        const item = await demoApi.addEducation({
           degree: String(values.degree),
           field: String(values.field ?? '') || undefined,
           institution: String(values.institution),
           year: Number(values.year),
         });
-        setPersistedList('education', [...profile.education, created]);
+        reassessment = item.reassessment;
+        setPersistedList('education', [...profile.education, item], reassessment?.completion);
       } else if (kind === 'project') {
-        const created = await demoApi.addProject({
+        const item = await demoApi.addProject({
           name: String(values.name),
           url: String(values.url ?? '') || undefined,
           description: String(values.description ?? '') || undefined,
         });
-        setPersistedList('projects', [...profile.projects, created]);
+        reassessment = item.reassessment;
+        setPersistedList('projects', [...profile.projects, item], reassessment?.completion);
       } else {
-        const created = await demoApi.addCertification({
+        const item = await demoApi.addCertification({
           name: String(values.name),
           issuer: String(values.issuer ?? '') || undefined,
           year: values.year ? Number(values.year) : undefined,
         });
-        setPersistedList('certifications', [...profile.certifications, created]);
+        reassessment = item.reassessment;
+        setPersistedList('certifications', [...profile.certifications, item], reassessment?.completion);
       }
+      // The server reassessed on insert (completion + stored match scores) —
+      // surface what changed so the seeker sees the update actually land.
+      if (reassessment) setReassess(reassessment);
       setSection('');
     } catch (err) {
       setSectionError(err instanceof Error ? err.message : 'تعذر حفظ العنصر — أعد المحاولة.');
@@ -411,6 +428,12 @@ export function CandidateProfilePage() {
       <div role="alert" data-testid="error-save-profile" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
         <span>{saveError}</span>
         <button type="button" onClick={() => setSaveError('')} className="text-xs font-bold underline opacity-80 hover:opacity-100" data-testid="button-dismiss-save-error">إخفاء</button>
+      </div>
+    )}
+    {reassess && (
+      <div role="status" data-testid="reassess-profile" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
+        <span>تم حفظ التغييرات وإعادة تقييم ملفك — نسبة الاكتمال الآن {reassess.completion}%{reassess.reassessedMatches > 0 ? ` · أُعيد حساب ${reassess.reassessedMatches} من نتائج المطابقة${reassess.changedMatches > 0 ? ` (${reassess.changedMatches} تغيّرت)` : ''}` : ''}</span>
+        <button type="button" onClick={() => setReassess(null)} className="text-xs font-bold underline opacity-80 hover:opacity-100" data-testid="button-dismiss-reassess">إخفاء</button>
       </div>
     )}
     <WorkflowGuide role="seeker" current="profile" />

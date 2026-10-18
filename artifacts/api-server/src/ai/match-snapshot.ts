@@ -1,6 +1,7 @@
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
+  applicationsTable,
   candidateSkillsTable,
   candidatesTable,
   educationTable,
@@ -12,6 +13,7 @@ import {
 } from "@workspace/db/schema";
 import type { MatchInput } from "./types";
 import { computeMatch } from "./engine";
+import { calculateProfileCompletion } from "./llm";
 
 // ─── Match input builders (shared by the matching routes) ───────────────────
 
@@ -189,4 +191,69 @@ export async function persistMatchSnapshot(jobId: string, candidateId: string, s
         explanation: snapshot.explanation,
       },
     });
+}
+
+// ─── Candidate reassessment ────────────────────────────────────────────────
+
+export interface ReassessmentResult {
+  /** The recomputed profile-completion percentage. */
+  completion: number;
+  /** How many stored match scores were refreshed. */
+  reassessedMatches: number;
+  /** Scores that actually moved, so the UI can say what changed. */
+  changedMatches: number;
+}
+
+/**
+ * Re-runs the whole assessment for one candidate after their profile changes.
+ *
+ * Two things go stale the moment a seeker edits their profile:
+ *  1. `candidates.completion` — previously only recomputed on CV upload.
+ *  2. Every stored match score (applications.match_score + the shared
+ *     match_results table) — previously frozen at application time, so a
+ *     company reading the candidate list saw yesterday's number.
+ *
+ * Both are recomputed here from the current profile. Pure algorithm — no LLM
+ * call — so this is cheap enough to run inline on every profile mutation.
+ * The stored LLM explanation is kept when the score did not move; when it
+ * did, the engine's fresh rule-based explanation replaces it (honest beats
+ * stale-prose).
+ */
+export async function reassessCandidate(candidateId: string): Promise<ReassessmentResult> {
+  const completion = await calculateProfileCompletion(candidateId);
+  await db
+    .update(candidatesTable)
+    .set({ completion, updatedAt: new Date() })
+    .where(eq(candidatesTable.id, candidateId));
+
+  const applications = await db.query.applicationsTable.findMany({
+    where: eq(applicationsTable.candidateId, candidateId),
+    orderBy: desc(applicationsTable.appliedAt),
+  });
+
+  let changed = 0;
+  for (const app of applications) {
+    const snapshot = await computeMatchSnapshot(app.jobId, candidateId);
+    if (!snapshot) continue; // job was deleted — nothing to score against
+
+    await persistMatchSnapshot(app.jobId, candidateId, snapshot);
+    await db
+      .update(applicationsTable)
+      .set({
+        matchScore: snapshot.overallScore,
+        matchBreakdown: snapshot.flatBreakdown,
+        // Keep a previous LLM explanation only while it still describes the
+        // stored score; a moved score must not carry the old prose.
+        aiExplanation:
+          app.matchScore === snapshot.overallScore && app.aiExplanation
+            ? app.aiExplanation
+            : snapshot.explanation,
+        updatedAt: new Date(),
+      })
+      .where(eq(applicationsTable.id, app.id));
+
+    if (app.matchScore !== snapshot.overallScore) changed += 1;
+  }
+
+  return { completion, reassessedMatches: applications.length, changedMatches: changed };
 }

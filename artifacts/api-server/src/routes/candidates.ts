@@ -8,7 +8,7 @@ import { candidatesTable, experiencesTable, educationTable, projectsTable, certi
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
-import { calculateProfileCompletion } from "../ai/llm";
+import { reassessCandidate } from "../ai/match-snapshot";
 import { saveFile, deleteFile } from "../services/file-storage";
 import { parseDocument } from "../services/document-parser";
 
@@ -250,7 +250,22 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
     }
   }
 
-  res.json({ ...saved, cvStatus: cvStatusOf(saved) });
+  // Reassessment: the profile the engine scores just changed, so recompute
+  // the completion percentage and every stored match score now — a company
+  // opening the candidate list must see numbers that match this profile,
+  // not the one that existed when the seeker last applied.
+  const assessment = await reassessCandidate(candidate.id);
+  const fresh = { ...saved, completion: assessment.completion };
+
+  res.json({
+    ...fresh,
+    cvStatus: cvStatusOf(fresh),
+    reassessment: {
+      completion: assessment.completion,
+      reassessedMatches: assessment.reassessedMatches,
+      changedMatches: assessment.changedMatches,
+    },
+  });
 });
 
 router.post("/experience", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -284,7 +299,15 @@ router.post("/experience", authMiddleware, requireRole("seeker"), async (req: Au
     ...parsed.data,
   }).returning();
 
-  res.status(201).json(newExp[0]);
+  // A new experience changes both the completion percentage and every stored
+  // match score — reassess immediately so companies see the updated profile.
+  const assessment = await reassessCandidate(candidate.id);
+
+  res.status(201).json({
+    ...newExp[0],
+    completion: assessment.completion,
+    reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+  });
 });
 
 router.post("/education", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -315,7 +338,13 @@ router.post("/education", authMiddleware, requireRole("seeker"), async (req: Aut
     ...parsed.data,
   }).returning();
 
-  res.status(201).json(newEdu[0]);
+  const assessment = await reassessCandidate(candidate.id);
+
+  res.status(201).json({
+    ...newEdu[0],
+    completion: assessment.completion,
+    reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+  });
 });
 
 router.post("/project", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -345,7 +374,13 @@ router.post("/project", authMiddleware, requireRole("seeker"), async (req: AuthR
     ...parsed.data,
   }).returning();
 
-  res.status(201).json(created[0]);
+  const assessment = await reassessCandidate(candidate.id);
+
+  res.status(201).json({
+    ...created[0],
+    completion: assessment.completion,
+    reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+  });
 });
 
 router.post("/certification", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
@@ -375,7 +410,13 @@ router.post("/certification", authMiddleware, requireRole("seeker"), async (req:
     ...parsed.data,
   }).returning();
 
-  res.status(201).json(created[0]);
+  const assessment = await reassessCandidate(candidate.id);
+
+  res.status(201).json({
+    ...created[0],
+    completion: assessment.completion,
+    reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+  });
 });
 
 /**
@@ -599,24 +640,30 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
         }
       }
 
-      // Recalculate profile completion
-      const completion = await calculateProfileCompletion(candidate.id);
-
-      const updated = await db.update(candidatesTable)
+      // A CV import rewrites skills/experience/education — the stored
+      // completion and every match score must follow, so reassess fully.
+      const preUpdate = await db.update(candidatesTable)
         .set({
           cvUrl: storedFile.url,
           cvParsedData: parsedData,
-          completion,
           updatedAt: new Date(),
         })
         .where(eq(candidatesTable.id, candidate.id))
         .returning();
+
+      const assessment = await reassessCandidate(candidate.id);
+      const updated = [{ ...preUpdate[0]!, completion: assessment.completion }];
 
       res.json({
         ...updated[0],
         cvStatus: cvStatusOf(updated[0]),
         parsed: Boolean(parsedData?.headline || parsedData?.skills?.length),
         ...(parseError ? { parseError } : {}),
+        reassessment: {
+          completion: assessment.completion,
+          reassessedMatches: assessment.reassessedMatches,
+          changedMatches: assessment.changedMatches,
+        },
         file: {
           id: storedFile.id,
           name: storedFile.originalName,
@@ -668,19 +715,18 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
       }
     }
 
-    const completion = await calculateProfileCompletion(candidate.id);
-
-    const updated = await db.update(candidatesTable)
+    // Same reassessment as the multipart path: the profile content changed.
+    await db.update(candidatesTable)
       .set({
         cvUrl: parsed.data.fileUrl,
         cvParsedData: parsedData,
-        completion,
         updatedAt: new Date(),
       })
-      .where(eq(candidatesTable.id, candidate.id))
-      .returning();
+      .where(eq(candidatesTable.id, candidate.id));
 
-    res.json(updated[0]);
+    const assessment = await reassessCandidate(candidate.id);
+
+    res.json({ completion: assessment.completion, reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches } });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Upload failed" });
   }

@@ -843,18 +843,41 @@ describe('profile save', () => {
     expect((bodies[0].preferences as { contractTypes: string[] }).contractTypes).toEqual(['part-time']);
     expect(await screen.findByText('تم حفظ الملف')).toBeInTheDocument();
   });
+
+  it('reports the reassessment after a save and updates the completion', async () => {
+    setRole('seeker');
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-save-full-candidate-profile'));
+
+    // The server reassessed (completion + stored match scores) — the result
+    // is shown, not swallowed, and the dashboard's completion follows it.
+    const note = await screen.findByTestId('reassess-profile');
+    expect(note).toHaveTextContent('نسبة الاكتمال الآن 88%');
+    expect(note).toHaveTextContent('أُعيد حساب 2 من نتائج المطابقة');
+    expect(note).toHaveTextContent('(1 تغيّرت)');
+    fireEvent.click(screen.getByTestId('button-dismiss-reassess'));
+    expect(screen.queryByTestId('reassess-profile')).toBeNull();
+  });
 });
 
 // ─── Profile sections & photo ───────────────────────────────────────────────
 
 describe('profile sections', () => {
-  it('adds a work experience through the inline form', async () => {
+  it('adds a work experience through the inline form and surfaces the reassessment', async () => {
     setRole('seeker');
     const bodies: Array<Record<string, unknown>> = [];
     server.use(
       http.post('*/api/candidates/experience', async ({ request }) => {
         bodies.push((await request.json()) as Record<string, unknown>);
-        return HttpResponse.json({ id: 'exp-live', role: 'متدرب تحليل بيانات', company: 'شركة الاختبار', startDate: '2024' }, { status: 201 });
+        return HttpResponse.json({
+          id: 'exp-live',
+          role: 'متدرب تحليل بيانات',
+          company: 'شركة الاختبار',
+          startDate: '2024',
+          completion: 90,
+          reassessment: { completion: 90, reassessedMatches: 3, changedMatches: 2 },
+        }, { status: 201 });
       }),
     );
     renderAt('/seeker/profile');
@@ -870,6 +893,12 @@ describe('profile sections', () => {
     expect(screen.getByText('متدرب تحليل بيانات')).toBeInTheDocument();
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0]).toMatchObject({ role: 'متدرب تحليل بيانات', company: 'شركة الاختبار', startDate: '2024' });
+
+    // The insert triggered a server-side reassessment — shown, not swallowed.
+    const note = await screen.findByTestId('reassess-profile');
+    expect(note).toHaveTextContent('نسبة الاكتمال الآن 90%');
+    expect(note).toHaveTextContent('أُعيد حساب 3 من نتائج المطابقة');
+    expect(note).toHaveTextContent('(2 تغيّرت)');
   });
 
   it('validates the project form before posting, then adds the project', async () => {

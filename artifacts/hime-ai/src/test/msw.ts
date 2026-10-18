@@ -217,23 +217,24 @@ export const handlers = [
   }),
   http.patch('*/api/candidates/profile', async () => {
     await delay(10);
-    return HttpResponse.json(candidate);
+    // Mirrors the real response: the saved profile plus what was reassessed.
+    return HttpResponse.json({ ...candidate, completion: 88, reassessment: { completion: 88, reassessedMatches: 2, changedMatches: 1 } });
   }),
   http.post('*/api/candidates/experience', async ({ request }) => {
     await delay(10);
-    return HttpResponse.json({ id: 'exp-new', ...(await request.json() as object) }, { status: 201 });
+    return HttpResponse.json({ id: 'exp-new', ...(await request.json() as object), completion: 90, reassessment: { completion: 90, reassessedMatches: 2, changedMatches: 1 } }, { status: 201 });
   }),
   http.post('*/api/candidates/education', async ({ request }) => {
     await delay(10);
-    return HttpResponse.json({ id: 'edu-new', ...(await request.json() as object) }, { status: 201 });
+    return HttpResponse.json({ id: 'edu-new', ...(await request.json() as object), completion: 85, reassessment: { completion: 85, reassessedMatches: 2, changedMatches: 0 } }, { status: 201 });
   }),
   http.post('*/api/candidates/project', async ({ request }) => {
     await delay(10);
-    return HttpResponse.json({ id: 'prj-new', ...(await request.json() as object) }, { status: 201 });
+    return HttpResponse.json({ id: 'prj-new', ...(await request.json() as object), completion: 87, reassessment: { completion: 87, reassessedMatches: 2, changedMatches: 1 } }, { status: 201 });
   }),
   http.post('*/api/candidates/certification', async ({ request }) => {
     await delay(10);
-    return HttpResponse.json({ id: 'cert-new', ...(await request.json() as object) }, { status: 201 });
+    return HttpResponse.json({ id: 'cert-new', ...(await request.json() as object), completion: 84, reassessment: { completion: 84, reassessedMatches: 2, changedMatches: 0 } }, { status: 201 });
   }),
   http.post('*/api/candidates/photo', async () => {
     await delay(10);

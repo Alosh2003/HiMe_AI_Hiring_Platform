@@ -235,7 +235,7 @@ export async function getProfile() {
   return demoProfile;
 }
 
-export async function updateProfile(data: Partial<CandidateProfile>) {
+export async function updateProfile(data: Partial<CandidateProfile>): Promise<WithReassessment<CandidateProfile>> {
   if (hasApi()) {
     // The API stores the contract preference as `contractTypes: string[]` —
     // map the UI's single selection across. `preferences` is only sent when
@@ -249,7 +249,7 @@ export async function updateProfile(data: Partial<CandidateProfile>) {
         remote: preferences.remote ?? false,
       };
     }
-    return apiRequest<CandidateProfile>('/candidates/profile', { method: 'PATCH', body: JSON.stringify(body) });
+    return apiRequest<WithReassessment<CandidateProfile>>('/candidates/profile', { method: 'PATCH', body: JSON.stringify(body) });
   }
   await wait();
   Object.assign(demoProfile, data);
@@ -302,32 +302,36 @@ export interface EducationInput { degree: string; field?: string; institution: s
 export interface ProjectInput { name: string; description?: string; url?: string; }
 export interface CertificationInput { name: string; issuer?: string; year?: number; }
 
-export async function addExperience(input: ExperienceInput) {
-  if (hasApi()) return apiRequest<Experience>('/candidates/experience', { method: 'POST', body: JSON.stringify(input) });
+/** What the server re-evaluated after a profile change (see API reassessCandidate). */
+export interface Reassessment { completion: number; reassessedMatches: number; changedMatches: number; }
+export type WithReassessment<T> = T & { reassessment?: Reassessment };
+
+export async function addExperience(input: ExperienceInput): Promise<WithReassessment<Experience>> {
+  if (hasApi()) return apiRequest<WithReassessment<Experience>>('/candidates/experience', { method: 'POST', body: JSON.stringify(input) });
   await wait();
   const created = { id: `exp-${Date.now()}`, location: '', description: '', ...input } as Experience;
   demoProfile.experiences = [created, ...demoProfile.experiences];
   return created;
 }
 
-export async function addEducation(input: EducationInput) {
-  if (hasApi()) return apiRequest<Education>('/candidates/education', { method: 'POST', body: JSON.stringify(input) });
+export async function addEducation(input: EducationInput): Promise<WithReassessment<Education>> {
+  if (hasApi()) return apiRequest<WithReassessment<Education>>('/candidates/education', { method: 'POST', body: JSON.stringify(input) });
   await wait();
   const created = { id: `edu-${Date.now()}`, field: '', ...input } as unknown as Education;
   demoProfile.education = [created, ...demoProfile.education];
   return created;
 }
 
-export async function addProject(input: ProjectInput) {
-  if (hasApi()) return apiRequest<Project>('/candidates/project', { method: 'POST', body: JSON.stringify(input) });
+export async function addProject(input: ProjectInput): Promise<WithReassessment<Project>> {
+  if (hasApi()) return apiRequest<WithReassessment<Project>>('/candidates/project', { method: 'POST', body: JSON.stringify(input) });
   await wait();
   const created = { id: `prj-${Date.now()}`, skills: [], ...input } as Project;
   demoProfile.projects = [created, ...demoProfile.projects];
   return created;
 }
 
-export async function addCertification(input: CertificationInput) {
-  if (hasApi()) return apiRequest<Certification>('/candidates/certification', { method: 'POST', body: JSON.stringify(input) });
+export async function addCertification(input: CertificationInput): Promise<WithReassessment<Certification>> {
+  if (hasApi()) return apiRequest<WithReassessment<Certification>>('/candidates/certification', { method: 'POST', body: JSON.stringify(input) });
   await wait();
   const created = { id: `cert-${Date.now()}`, issuer: '', ...input } as unknown as Certification;
   demoProfile.certifications = [created, ...demoProfile.certifications];
