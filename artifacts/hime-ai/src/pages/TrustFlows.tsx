@@ -12,6 +12,7 @@ import { resolvePostAuthRedirect, readNextParam, resolveRegistrationRedirect, ro
 import { login, register, getJob, apply as applyToJob, getProfile, uploadCv, forgotPassword, resetPassword, verifyEmail, resendVerification } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
+import { BrandMark, BrandPattern } from '@/components/brand-pattern';
 import { WorkflowGuide } from '@/components/workflow-guide';
 
 const DEMO_ACCOUNTS = {
@@ -23,9 +24,10 @@ const DEMO_ACCOUNTS = {
 function AuthFrame({ title, subtitle, side, children }: { title: string; subtitle: string; side: string; children: ReactNode }) {
   return (
     <div className="grid min-h-[100dvh] lg:grid-cols-[.9fr_1.1fr]">
-      <div className="hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
+      <div className="relative isolate hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
+        <BrandPattern className="-z-10 text-[#f2c66d] opacity-[0.13]" />
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight" data-testid="link-trust-auth-logo">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f2c66d] text-[#123e43]"><Sparkles className="h-4 w-4" /></span>
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f2c66d] text-[#123e43]"><BrandMark className="h-[18px] w-[18px]" /></span>
           <span className="text-lg">HiMe <span className="text-[#f2c66d]">AI</span></span>
         </Link>
         <div>

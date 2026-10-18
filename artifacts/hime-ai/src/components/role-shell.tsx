@@ -6,6 +6,7 @@ import {
   Users, X,
 } from 'lucide-react';
 import { LanguageSwitch, Logo } from '@/components/app-kit';
+import { BrandMark, BrandPattern } from '@/components/brand-pattern';
 import { NotificationBell } from '@/components/notification-bell';
 import { useLanguage } from '@/i18n';
 import { useAuth } from '@/contexts/auth-context';
@@ -153,7 +154,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
               aria-label="فتح القائمة الجانبية"
               title="فتح القائمة الجانبية — عرض أسماء الصفحات"
               data-testid="button-unfold-rail"
-            >H</button>
+            ><BrandMark className="h-5 w-5" /></button>
           ) : (
             <Logo light />
           )}
@@ -224,10 +225,24 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
             >
               <LogOut className="h-4 w-4" />
             </button>
-            <div className="relative"><div className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-9 w-9 rounded-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
+            <Link
+              href={settingsHref}
+              title="الملف الشخصي"
+              aria-label="الملف الشخصي"
+              className="relative block rounded-full ring-2 ring-[#f2c66d]/55 transition-shadow hover:ring-[#f2c66d]"
+              data-testid="link-header-profile"
+            >
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{avatar}</span>
+              {userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-9 w-9 rounded-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} data-testid="img-header-avatar" />}
+            </Link>
           </div>
         </header>
-        <main className="mx-auto max-w-[1500px] p-4 md:p-8">{children}</main>
+        {/* Brand lattice behind the portal content: isolated + negative z so
+            cards and copy stay above it while the gutters carry the motif. */}
+        <main className="relative isolate mx-auto max-w-[1500px] p-4 md:p-8">
+          <BrandPattern className="-z-10 text-primary opacity-[0.05]" />
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -949,6 +949,80 @@ describe('profile sections', () => {
       { timeout: 3000 },
     );
     expect(screen.queryByTestId('error-profile-photo')).toBeNull();
+    // The header corner circle picks the new photo up immediately — no reload.
+    expect(screen.getByTestId('img-header-avatar')).toHaveAttribute(
+      'src',
+      'http://localhost:5000/api/avatars/test-avatar.png',
+    );
+  });
+});
+
+// ─── Header avatar session refresh ──────────────────────────────────────────
+
+describe('header avatar session refresh', () => {
+  const staleSeeker = {
+    id: 'f14e27ff-7e71-40af-8335-8b28c44852c7',
+    email: 'seeker@hime.ai',
+    name: 'Test User',
+    role: 'seeker',
+  };
+
+  it('shows the stored photo in the header corner circle', async () => {
+    localStorage.setItem('hime_ai_user', JSON.stringify({ ...staleSeeker, avatarUrl: '/api/avatars/stored.png' }));
+    renderAt('/seeker/dashboard');
+    expect(await screen.findByTestId('img-header-avatar')).toHaveAttribute(
+      'src',
+      'http://localhost:5000/api/avatars/stored.png',
+    );
+  });
+
+  it('self-heals a stale session from /auth/me without a re-login', async () => {
+    // The stored copy predates avatarUrl — exactly the state of a session
+    // signed in before the photo feature existed.
+    localStorage.setItem('hime_ai_user', JSON.stringify(staleSeeker));
+    server.use(
+      http.get('*/api/auth/me', () =>
+        HttpResponse.json({
+          ...staleSeeker,
+          phone: null,
+          avatarUrl: '/api/avatars/healed.png',
+        }),
+      ),
+    );
+    renderAt('/seeker/dashboard');
+    expect(await screen.findByTestId('img-header-avatar')).toHaveAttribute(
+      'src',
+      'http://localhost:5000/api/avatars/healed.png',
+    );
+    // The refreshed copy is persisted for the next page load.
+    expect(JSON.parse(localStorage.getItem('hime_ai_user') ?? '{}').avatarUrl).toBe('/api/avatars/healed.png');
+  });
+
+  it('keeps the stored session when the silent /auth/me refresh fails', async () => {
+    localStorage.setItem('hime_ai_user', JSON.stringify(staleSeeker));
+    server.use(http.get('*/api/auth/me', () => HttpResponse.json({ error: 'expired' }, { status: 401 })));
+    renderAt('/seeker/dashboard');
+    // Still signed in with the exact session it started with — a background
+    // refresh must never sign the user out.
+    expect(await screen.findByTestId('link-role-settings')).toBeInTheDocument();
+    expect(localStorage.getItem('hime_ai_token')).toBe('test-jwt-token');
+    expect(JSON.parse(localStorage.getItem('hime_ai_user') ?? '{}').name).toBe('Test User');
+  });
+});
+
+// ─── Brand motif ─────────────────────────────────────────────────────────────
+
+describe('brand motif', () => {
+  it('renders the brand mark and star-lattice pattern on the landing page', async () => {
+    renderAt('/');
+    expect((await screen.findAllByTestId('brand-pattern')).length).toBeGreaterThan(0); // hero backdrop
+    expect(screen.getAllByTestId('brand-mark').length).toBeGreaterThan(0); // logo tile
+  });
+
+  it('carries the pattern into the portal background', async () => {
+    setRole('seeker');
+    renderAt('/seeker/dashboard');
+    expect((await screen.findAllByTestId('brand-pattern')).length).toBeGreaterThan(0);
   });
 });
 

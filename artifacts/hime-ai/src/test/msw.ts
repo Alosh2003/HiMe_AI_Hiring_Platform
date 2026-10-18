@@ -112,7 +112,17 @@ export const handlers = [
   }),
   http.get('*/api/auth/me', async () => {
     await delay(10);
-    return HttpResponse.json(authUser);
+    // The live route answers with the user behind the bearer token. In tests
+    // that identity lives in localStorage (setRole/login write it), so echo it
+    // back — a hardcoded seeker fixture would flip company/admin sessions the
+    // moment AuthProvider's background refresh adopts the response.
+    let stored: Record<string, unknown> = {};
+    try {
+      stored = JSON.parse(localStorage.getItem('hime_ai_user') ?? '{}') as Record<string, unknown>;
+    } catch {
+      /* keep the fixture defaults */
+    }
+    return HttpResponse.json({ ...authUser, ...stored });
   }),
 
   // Public CV assessment (no auth)

@@ -19,6 +19,7 @@ import {
   PageHeader, PublicNav, ScoreBreakdown, ScoreRing
 } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
+import { BrandPattern } from '@/components/brand-pattern';
 import type { ApplicationStatus, MatchResult } from '@/types';
 
 // ─── Public Footer ────────────────────────────────────────────────────────────
@@ -68,7 +69,8 @@ export function HomePage() {
       <PublicNav />
       <main>
         {/* Hero */}
-        <section className="surface-grid relative overflow-hidden">
+        <section className="surface-grid relative isolate overflow-hidden">
+          <BrandPattern className="-z-10 text-primary opacity-[0.07]" />
           <div className="mx-auto grid min-h-[620px] max-w-7xl items-center gap-12 px-4 py-20 md:grid-cols-[1.1fr_.9fr] md:px-8 md:py-28">
             <div className="animate-rise">
               <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-bold text-primary">

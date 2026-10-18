@@ -285,7 +285,7 @@ const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[]
 
 export function CandidateProfilePage() {
   const { data, loading } = useDemo(demoApi.getProfile, []);
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [draft, setDraft] = useState<CandidateProfile | null>(null);
   const [newSkill, setNewSkill] = useState('');
   const [saved, setSaved] = useState(false);
@@ -401,6 +401,8 @@ export function CandidateProfilePage() {
       const avatarUrl = await demoApi.uploadAvatar(file);
       // Saved server-side already — no need to touch the حفظ button state.
       setDraft({ ...profile, avatarUrl });
+      // Reflect it in the header/sidebar avatar circles right away.
+      updateUser({ avatarUrl });
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : 'تعذر رفع الصورة — حاول مرة أخرى.');
     } finally {
@@ -415,6 +417,8 @@ export function CandidateProfilePage() {
     try {
       await demoApi.removeAvatar();
       setDraft({ ...profile, avatarUrl: null });
+      // Fall back to initials in the header/sidebar circles too.
+      updateUser({ avatarUrl: undefined });
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : 'تعذر حذف الصورة — حاول مرة أخرى.');
     } finally {
