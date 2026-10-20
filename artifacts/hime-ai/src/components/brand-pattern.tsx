@@ -2,20 +2,21 @@ import { useId } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * The Hire me brand motif: a bold arrow pointing up-right, redrawn from the
- * brand tiles — a triangular head seating into the top-right corner and a
- * thick 45° shaft landing on the bottom-left. Still one path, one color, so
- * it scales from the 16px favicon tile to a full-page background.
+ * The Hire me brand motif, traced from the official logo:
+ * a chunky arrow pointing up-right — full-width top bar, full-height right
+ * edge, a crescent bay carved out of the upper-left by a circular arc, and a
+ * notch splitting the lower-left wedge, its walls also circular arcs.
+ *
+ * One path (120×128 box), one color: scales from the 16px favicon tile to a
+ * full-page background without any strokes.
  */
 export const BRAND_ARROW_PATH =
-  'M22 2L12 2L14.53 4.53L3.53 15.53L8.47 20.47L19.47 9.47L22 12Z';
-
-/** The shaft joins the head along the hypotenuse x−y=10 (12,2 → 22,12). */
+  'M5 0H120V128H83V78A99.5 99.5 0 0 1 12 128H0V89A72 72 0 0 0 61 39H5Z';
 
 /** Solid mark. `currentColor` throughout — inherits from any text-* class. */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" data-testid="brand-mark" className={className}>
+    <svg viewBox="0 0 120 128" fill="currentColor" aria-hidden="true" focusable="false" data-testid="brand-mark" className={className}>
       <path d={BRAND_ARROW_PATH} />
     </svg>
   );
@@ -55,10 +56,10 @@ export function BrandPattern({ className }: { className?: string }) {
           <circle cx="0" cy="48" r="1.4" fill="currentColor" opacity="0.25" />
           <circle cx="96" cy="48" r="1.4" fill="currentColor" opacity="0.25" />
           <circle cx="48" cy="96" r="1.4" fill="currentColor" opacity="0.25" />
-          {/* The arrow mark centered in the tile. */}
+          {/* The arrow mark centered in the tile (120×128 → ~28px). */}
           <path
             d={BRAND_ARROW_PATH}
-            transform="translate(36.5 35.5)"
+            transform="translate(33.75 32.3) scale(0.2375)"
             fill="currentColor"
             opacity="0.55"
           />
