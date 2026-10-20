@@ -6,6 +6,7 @@ import {
   Users, X,
 } from 'lucide-react';
 import { LanguageSwitch, Logo } from '@/components/app-kit';
+import { ThemeToggle } from '@/components/theme';
 import { BrandMark, BrandPattern } from '@/components/brand-pattern';
 import { NotificationBell } from '@/components/notification-bell';
 import { useLanguage } from '@/i18n';
@@ -213,6 +214,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
             <div className="hidden md:block"><p className="text-xs text-muted-foreground">{content.greeting}</p><p className="font-semibold">صباح الخير، {firstName}</p></div>
           </div>
           <div className="ms-auto flex items-center gap-3">
+            <ThemeToggle />
             <LanguageSwitch />
             <NotificationBell />
             <button

@@ -29,7 +29,7 @@ function PublicFooter() {
     <footer className="bg-sidebar px-4 py-12 text-sidebar-foreground md:px-8">
       <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
         <div>
-          <span className="text-lg font-bold">Hire <span className="italic">me</span></span>
+          <span className="text-lg font-bold">Hire <span className="font-script text-[1.15em]">me</span></span>
           <p className="mt-4 max-w-xs text-sm leading-7 text-sidebar-foreground/60">مساحة أكثر وضوحاً للقرارات المهنية المهمة.</p>
         </div>
         <div>

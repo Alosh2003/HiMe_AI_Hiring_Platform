@@ -28,7 +28,7 @@ function AuthFrame({ title, subtitle, side, children }: { title: string; subtitl
         <BrandPattern className="-z-10 text-brand-accent opacity-[0.13]" />
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight" data-testid="link-trust-auth-logo">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-accent text-brand-ink"><BrandMark className="h-[18px] w-[18px]" /></span>
-          <span className="text-lg">Hire <span className="italic">me</span></span>
+          <span className="text-lg">Hire <span className="font-script text-[1.15em]">me</span></span>
         </Link>
         <div>
           <p className="mb-5 text-xs uppercase tracking-[.2em] text-brand-accent">Hire me</p>
@@ -39,7 +39,7 @@ function AuthFrame({ title, subtitle, side, children }: { title: string; subtitl
       </div>
       <div className="flex flex-col p-5 md:p-10">
         <div className="mb-16 flex items-center justify-between lg:justify-end">
-          <Link href="/" className="lg:hidden" data-testid="link-trust-auth-mobile-logo"><span className="font-bold">Hire <span className="italic">me</span></span></Link>
+          <Link href="/" className="lg:hidden" data-testid="link-trust-auth-mobile-logo"><span className="font-bold">Hire <span className="font-script text-[1.15em]">me</span></span></Link>
           <Link href="/jobs" className="text-xs font-semibold text-muted-foreground" data-testid="link-trust-auth-jobs">استكشف الوظائف <ArrowUpLeft className="inline h-3 w-3" /></Link>
         </div>
         <div className="mx-auto w-full max-w-md">

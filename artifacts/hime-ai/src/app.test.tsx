@@ -1026,6 +1026,24 @@ describe('brand motif', () => {
   });
 });
 
+// ─── Dark theme ─────────────────────────────────────────────────────────────
+
+describe('theme', () => {
+  it('toggles dark mode on <html> and persists the choice', () => {
+    document.documentElement.classList.remove('dark');
+    localStorage.removeItem('hime_theme');
+    renderAt('/');
+    const html = document.documentElement;
+    expect(html.classList.contains('dark')).toBe(false);
+    fireEvent.click(screen.getByTestId('button-theme-toggle'));
+    expect(html.classList.contains('dark')).toBe(true);
+    expect(localStorage.getItem('hime_theme')).toBe('dark');
+    fireEvent.click(screen.getByTestId('button-theme-toggle'));
+    expect(html.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem('hime_theme')).toBe('light');
+  });
+});
+
 // ─── CV upload ──────────────────────────────────────────────────────────────
 
 // ─── Profile editing: account fields, section items, privacy, AI summary ────
