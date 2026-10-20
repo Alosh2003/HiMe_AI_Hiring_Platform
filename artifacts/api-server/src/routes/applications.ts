@@ -425,15 +425,20 @@ router.get("/matches/:jobId", authMiddleware, requireRole("company"), validateUu
     : [];
   const matchNameMap = new Map(matchUsers.map((u) => [u.id, u.name]));
 
-  res.json(matches.map((m) => {
-    const candidate = candidateMap.get(m.candidateId);
-    return {
-      ...m,
-      candidate: candidate
-        ? { ...candidate, name: matchNameMap.get(candidate.userId) || candidate.headline || "مرشح" }
-        : null,
-    };
-  }));
+  res.json(matches
+    // A seeker who switched off "السماح للشركات برؤية ملفي" must not appear
+    // in discovery rankings. (Applicants they submitted themselves stay
+    // visible in the applicant list — applying is an explicit share.)
+    .filter((m) => candidateMap.get(m.candidateId)?.visibleToCompanies !== false)
+    .map((m) => {
+      const candidate = candidateMap.get(m.candidateId);
+      return {
+        ...m,
+        candidate: candidate
+          ? { ...candidate, name: matchNameMap.get(candidate.userId) || candidate.headline || "مرشح" }
+          : null,
+      };
+    }));
 });
 
 export default router;

@@ -14,6 +14,8 @@ import {
 import type { MatchInput } from "./types";
 import { computeMatch } from "./engine";
 import { calculateProfileCompletion } from "./llm";
+import { notify } from "../lib/notify";
+import { logger } from "../lib/logger";
 
 // ─── Match input builders (shared by the matching routes) ───────────────────
 
@@ -256,4 +258,44 @@ export async function reassessCandidate(candidateId: string): Promise<Reassessme
   }
 
   return { completion, reassessedMatches: applications.length, changedMatches: changed };
+}
+
+// ─── Job alerts ────────────────────────────────────────────────────────────
+
+/**
+ * Notifies seekers whose profile matches a newly active job at or above the
+ * threshold — the engine behind the profile's "job alerts" toggle. Pure
+ * engine (no LLM), bounded to the most recent opted-in candidates so a
+ * publish never becomes a full-table scan, and never throws: a failed alert
+ * sweep must not fail the request that published the job.
+ */
+export async function alertHighMatchCandidates(jobId: string, threshold = 80, limit = 50): Promise<number> {
+  try {
+    const job = await db.query.jobsTable.findFirst({ where: eq(jobsTable.id, jobId) });
+    if (!job || job.status !== "active") return 0;
+
+    const candidates = await db.query.candidatesTable.findMany({
+      where: eq(candidatesTable.jobAlerts, true),
+      orderBy: desc(candidatesTable.createdAt),
+      limit,
+    });
+
+    let notified = 0;
+    for (const candidate of candidates) {
+      const snapshot = await computeMatchSnapshot(jobId, candidate.id);
+      if (!snapshot || snapshot.overallScore < threshold) continue;
+      await notify({
+        userId: candidate.userId,
+        type: "job-alert",
+        title: `وظيفة جديدة تطابق ملفك ${snapshot.overallScore}%`,
+        body: job.title,
+        link: `/jobs/${job.id}`,
+      });
+      notified += 1;
+    }
+    return notified;
+  } catch (err) {
+    logger.error({ err, jobId }, "Job alert sweep failed");
+    return 0;
+  }
 }

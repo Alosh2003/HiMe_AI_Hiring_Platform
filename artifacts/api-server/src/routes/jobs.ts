@@ -7,6 +7,7 @@ import { authMiddleware, requireRole, verifyToken, type AuthRequest } from "../m
 import { validateUuidParam } from "../middleware/validate-params";
 import { writeAudit } from "../lib/audit";
 import { analyzeJobDescription } from "../ai/llm";
+import { alertHighMatchCandidates } from "../ai/match-snapshot";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -299,6 +300,11 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
     data.description,
     new Set(allSkills.map((s) => s.name.toLowerCase())),
   ).catch((err) => logger.error({ err, jobId: newJob[0].id }, "AI skill enrichment failed"));
+
+  // Job alerts: notify opted-in seekers whose profile matches this publish
+  // strongly (the "تنبيهات الفرص المطابقة" toggle). Also after the response —
+  // up to 50 engine matches, still not something the poster waits for.
+  void alertHighMatchCandidates(newJob[0].id);
 });
 
 /**
@@ -372,6 +378,12 @@ router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("
     .returning();
 
   res.json(updated[0]);
+
+  // Re-activating (or editing) a live job re-runs the alert sweep so opted-in
+  // seekers hear about it — same fire-and-forget rules as the create path.
+  if (updated[0]?.status === "active") {
+    void alertHighMatchCandidates(job.id);
+  }
 });
 
 router.delete("/:id", authMiddleware, requireRole("company", "admin"), validateUuidParam("id"), async (req: AuthRequest, res) => {

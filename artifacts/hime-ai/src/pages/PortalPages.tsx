@@ -172,17 +172,21 @@ type AddFormField = { key: string; label: string; type?: 'text' | 'textarea' | '
  * the values. Validation errors stay in the form; the caller passes server
  * failures through so nothing is swallowed.
  */
-function AddSectionForm({ title, fields, testid, busy, error, onSubmit, onCancel }: {
+function AddSectionForm({ title, fields, testid, busy, error, initialValues, onSubmit, onCancel }: {
   title: string;
   fields: AddFormField[];
   testid: string;
   busy: boolean;
   error: string;
+  /** Prefill — used when editing an existing item. */
+  initialValues?: Record<string, string | boolean>;
   onSubmit: (values: Record<string, string | boolean>) => void;
   onCancel: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
-    Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? false : ''])));
+  const [values, setValues] = useState<Record<string, string | boolean>>(() => ({
+    ...Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? false : ''])),
+    ...(initialValues ?? {}),
+  }));
   const [localError, setLocalError] = useState('');
   const submit = () => {
     const missing = fields.filter((field) => field.required && !String(values[field.key] ?? '').trim()).map((field) => field.label);
@@ -242,10 +246,11 @@ function AddSectionForm({ title, fields, testid, busy, error, onSubmit, onCancel
   );
 }
 
-/** Field layouts for each add form. */
-const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[] }> = {
+/** Field layouts for each add/edit form. */
+const SECTION_FORMS: Record<SectionKind, { title: string; editTitle: string; fields: AddFormField[] }> = {
   experience: {
     title: 'إضافة خبرة عملية',
+    editTitle: 'تعديل الخبرة العملية',
     fields: [
       { key: 'role', label: 'المسمى الوظيفي', required: true },
       { key: 'company', label: 'جهة العمل', required: true },
@@ -258,6 +263,7 @@ const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[]
   },
   education: {
     title: 'إضافة مؤهل تعليمي',
+    editTitle: 'تعديل المؤهل التعليمي',
     fields: [
       { key: 'degree', label: 'الدرجة', required: true },
       { key: 'field', label: 'التخصص' },
@@ -267,6 +273,7 @@ const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[]
   },
   project: {
     title: 'إضافة مشروع',
+    editTitle: 'تعديل المشروع',
     fields: [
       { key: 'name', label: 'اسم المشروع', required: true },
       { key: 'url', label: 'رابط المشروع' },
@@ -275,6 +282,7 @@ const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[]
   },
   certification: {
     title: 'إضافة شهادة',
+    editTitle: 'تعديل الشهادة',
     fields: [
       { key: 'name', label: 'اسم الشهادة', required: true },
       { key: 'issuer', label: 'الجهة المانحة' },
@@ -282,6 +290,36 @@ const SECTION_FORMS: Record<SectionKind, { title: string; fields: AddFormField[]
     ],
   },
 };
+
+/**
+ * Edit + two-step delete controls for a profile section item. Delete asks for
+ * confirmation inline — a mis-click must not erase a work history.
+ */
+function ItemActions({ kind, id, busy, onEdit, onDelete }: {
+  kind: SectionKind;
+  id: string;
+  busy: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <button type="button" onClick={onEdit} disabled={busy} aria-label="تعديل" title="تعديل" className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-primary" data-testid={`button-edit-${kind}-${id}`}>
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      {confirming ? (
+        <button type="button" onClick={onDelete} disabled={busy} className="rounded-lg bg-destructive px-2 py-1 text-[10px] font-bold text-destructive-foreground" data-testid={`button-confirm-delete-${kind}-${id}`}>
+          {busy ? 'جارٍ الحذف…' : 'تأكيد الحذف'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => setConfirming(true)} disabled={busy} aria-label="حذف" title="حذف" className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-destructive" data-testid={`button-delete-${kind}-${id}`}>
+          <span className="text-base font-bold leading-none">×</span>
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function CandidateProfilePage() {
   const { data, loading } = useDemo(demoApi.getProfile, []);
@@ -298,8 +336,15 @@ export function CandidateProfilePage() {
   const [photoError, setPhotoError] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [reassess, setReassess] = useState<demoApi.Reassessment | null>(null);
+  const [editing, setEditing] = useState<{ kind: SectionKind; id: string } | null>(null);
+  const [itemBusy, setItemBusy] = useState(false);
+  const [itemError, setItemError] = useState('');
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
   if (loading || (!data && !draft)) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
-  const profile = draft || data!;
+  // Name and email are account-level, so they start from the session and ride
+  // along in the draft until saved back to the account row.
+  const profile = draft || { ...data!, name: user?.name ?? '', email: user?.email ?? '' };
   const update = <K extends keyof CandidateProfile>(key: K, value: CandidateProfile[K]) => { setDraft({ ...profile, [key]: value }); setSaved(false); setSaveError(''); };
   const save = async () => {
     setSaving(true);
@@ -312,6 +357,11 @@ export function CandidateProfilePage() {
       if (updated?.reassessment) {
         setReassess(updated.reassessment);
         setDraft({ ...profile, completion: updated.reassessment.completion });
+      }
+      // Name/email edits land on the account row — sync the session so the
+      // header and sidebar show them without a re-login.
+      if (typeof updated?.name === 'string' && typeof updated?.email === 'string') {
+        updateUser({ name: updated.name, email: updated.email });
       }
     } catch (error) {
       // A rejected save must stay on the page and explain itself — an
@@ -389,6 +439,91 @@ export function CandidateProfilePage() {
       setSectionBusy(false);
     }
   };
+  const startEdit = (kind: SectionKind, id: string) => { setEditing({ kind, id }); setSection(''); setItemError(''); };
+  const editSectionItem = async (kind: SectionKind, id: string, values: Record<string, string | boolean>) => {
+    setItemBusy(true);
+    setItemError('');
+    try {
+      let reassessment: demoApi.Reassessment | undefined;
+      if (kind === 'experience') {
+        const { reassessment: r, ...row } = await demoApi.updateExperience(id, {
+          role: String(values.role),
+          company: String(values.company),
+          location: String(values.location ?? '') || undefined,
+          startDate: String(values.startDate),
+          endDate: values.current ? undefined : (String(values.endDate ?? '') || undefined),
+          current: values.current === true,
+          description: String(values.description ?? '') || undefined,
+        });
+        reassessment = r;
+        setPersistedList('experiences', profile.experiences.map((item) => (item.id === id ? { ...item, ...row } : item)), r?.completion);
+      } else if (kind === 'education') {
+        const { reassessment: r, ...row } = await demoApi.updateEducation(id, {
+          degree: String(values.degree),
+          field: String(values.field ?? '') || undefined,
+          institution: String(values.institution),
+          year: Number(values.year),
+        });
+        reassessment = r;
+        setPersistedList('education', profile.education.map((item) => (item.id === id ? { ...item, ...row } : item)), r?.completion);
+      } else if (kind === 'project') {
+        const { reassessment: r, ...row } = await demoApi.updateProject(id, {
+          name: String(values.name),
+          url: String(values.url ?? '') || undefined,
+          description: String(values.description ?? '') || undefined,
+        });
+        reassessment = r;
+        setPersistedList('projects', profile.projects.map((item) => (item.id === id ? { ...item, ...row } : item)), r?.completion);
+      } else {
+        const { reassessment: r, ...row } = await demoApi.updateCertification(id, {
+          name: String(values.name),
+          issuer: String(values.issuer ?? '') || undefined,
+          year: values.year ? Number(values.year) : undefined,
+        });
+        reassessment = r;
+        setPersistedList('certifications', profile.certifications.map((item) => (item.id === id ? { ...item, ...row } : item)), r?.completion);
+      }
+      if (reassessment) setReassess(reassessment);
+      setEditing(null);
+    } catch (err) {
+      // Shown inside the still-open edit form — nothing is lost.
+      setItemError(err instanceof Error ? err.message : 'تعذر حفظ التعديل — أعد المحاولة.');
+    } finally {
+      setItemBusy(false);
+    }
+  };
+  const removeSectionItem = async (kind: SectionKind, id: string) => {
+    setItemBusy(true);
+    setItemError('');
+    try {
+      const result = await demoApi.deleteSectionItem(kind, id);
+      if (kind === 'experience') setPersistedList('experiences', profile.experiences.filter((item) => item.id !== id), result.reassessment?.completion);
+      else if (kind === 'education') setPersistedList('education', profile.education.filter((item) => item.id !== id), result.reassessment?.completion);
+      else if (kind === 'project') setPersistedList('projects', profile.projects.filter((item) => item.id !== id), result.reassessment?.completion);
+      else setPersistedList('certifications', profile.certifications.filter((item) => item.id !== id), result.reassessment?.completion);
+      if (result.reassessment) setReassess(result.reassessment);
+      if (editing?.id === id) setEditing(null);
+    } catch (err) {
+      setItemError(err instanceof Error ? err.message : 'تعذر حذف العنصر — أعد المحاولة.');
+    } finally {
+      setItemBusy(false);
+    }
+  };
+  const createSummary = async () => {
+    setSummaryBusy(true);
+    setSummaryError('');
+    try {
+      const result = await demoApi.generateSummary();
+      // Persisted by the server already — fill the field and show what the
+      // reassessment changed, without dirtying the save form.
+      setPersistedList('summary', result.summary, result.reassessment?.completion);
+      if (result.reassessment) setReassess(result.reassessment);
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : 'تعذر إنشاء الملخص — أعد المحاولة.');
+    } finally {
+      setSummaryBusy(false);
+    }
+  };
   const onPhotoSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // re-picking the same file must fire again
@@ -426,6 +561,10 @@ export function CandidateProfilePage() {
     }
   };
   const avatarSrc = photoPreview ?? demoApi.fileSrc(profile.avatarUrl);
+  const editingExperience = editing?.kind === 'experience' ? profile.experiences.find((item) => item.id === editing.id) : undefined;
+  const editingEducation = editing?.kind === 'education' ? profile.education.find((item) => item.id === editing.id) : undefined;
+  const editingProject = editing?.kind === 'project' ? profile.projects.find((item) => item.id === editing.id) : undefined;
+  const editingCertification = editing?.kind === 'certification' ? profile.certifications.find((item) => item.id === editing.id) : undefined;
   return <RoleShell role="seeker">
     <PageHeader eyebrow="الملف المهني" title="كل ما تحتاجه الشركات لفهم مسارك." description="تحكم في قصتك المهنية، من العنوان الأول إلى تفضيلاتك للخطوة القادمة." action={<Button onClick={save} disabled={saving} data-testid="button-save-full-candidate-profile">{saving ? <Clock3 className="h-4 w-4" /> : saved ? <CheckCircle2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}{saving ? 'جارٍ الحفظ…' : saved ? 'تم حفظ الملف' : 'حفظ الملف'}</Button>} />
     {saveError && (
@@ -441,23 +580,29 @@ export function CandidateProfilePage() {
       </div>
     )}
     <WorkflowGuide role="seeker" current="profile" />
-    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="relative"><div data-testid="box-profile-avatar" className="h-16 w-16 overflow-hidden rounded-2xl">{avatarSrc ? <img src={avatarSrc} alt={user?.name ?? ''} className="h-16 w-16 object-cover" data-testid="img-profile-avatar" /> : <div className="grid h-16 w-16 place-items-center bg-primary text-xl font-bold text-primary-foreground">{initials(user?.name)}</div>}</div><label title="تغيير صورة الملف" className="absolute -bottom-1.5 -end-1.5 grid h-7 w-7 cursor-pointer place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:bg-muted" data-testid="label-upload-photo"><Camera className="h-3.5 w-3.5" /><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelected} disabled={photoBusy} data-testid="input-profile-photo" aria-label="رفع صورة الملف الشخصي" /></label>{profile.avatarUrl && !photoBusy && <button type="button" onClick={removePhoto} aria-label="إزالة الصورة" title="إزالة الصورة" className="absolute -top-1.5 -end-1.5 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground shadow-sm hover:text-destructive" data-testid="button-remove-photo">×</button>}{photoBusy && <span className="absolute inset-0 grid place-items-center rounded-2xl bg-background/60"><Clock3 className="h-5 w-5 animate-spin text-primary" /></span>}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · متاح لفرص جديدة</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="sm" /><div><p className="text-xs text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">أضف مشروعاً لرفع النتيجة</p></div></div></div>
+    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="relative"><div data-testid="box-profile-avatar" className="h-16 w-16 overflow-hidden rounded-2xl">{avatarSrc ? <img src={avatarSrc} alt={user?.name ?? ''} className="h-16 w-16 object-cover" data-testid="img-profile-avatar" /> : <div className="grid h-16 w-16 place-items-center bg-primary text-xl font-bold text-primary-foreground">{initials(user?.name)}</div>}</div><label title="تغيير صورة الملف" className="absolute -bottom-1.5 -end-1.5 grid h-7 w-7 cursor-pointer place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:bg-muted" data-testid="label-upload-photo"><Camera className="h-3.5 w-3.5" /><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelected} disabled={photoBusy} data-testid="input-profile-photo" aria-label="رفع صورة الملف الشخصي" /></label>{profile.avatarUrl && !photoBusy && <button type="button" onClick={removePhoto} aria-label="إزالة الصورة" title="إزالة الصورة" className="absolute -top-1.5 -end-1.5 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground shadow-sm hover:text-destructive" data-testid="button-remove-photo">×</button>}{photoBusy && <span className="absolute inset-0 grid place-items-center rounded-2xl bg-background/60"><Clock3 className="h-5 w-5 animate-spin text-primary" /></span>}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · {profile.visibleToCompanies === false ? 'ملفك مخفي عن الشركات' : 'متاح لفرص جديدة'}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="sm" /><div><p className="text-xs text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">أضف مشروعاً لرفع النتيجة</p></div></div></div>
     {photoError && (
       <div role="alert" data-testid="error-profile-photo" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
         <span>{photoError}</span>
         <button type="button" onClick={() => setPhotoError('')} className="text-xs font-bold underline opacity-80 hover:opacity-100">إخفاء</button>
       </div>
     )}
+    {itemError && !editing && (
+      <div role="alert" data-testid="error-section-item" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
+        <span>{itemError}</span>
+        <button type="button" onClick={() => setItemError('')} className="text-xs font-bold underline opacity-80 hover:opacity-100">إخفاء</button>
+      </div>
+    )}
     <div className="grid gap-6 xl:grid-cols-[1fr_300px]"><div className="space-y-6">
-      <Card><CardHeader><CardTitle className="text-base">المعلومات الشخصية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2"><Field label="العنوان المهني" value={profile.headline} onChange={(value) => update('headline', value)} /><Field label="الموقع" value={profile.location} onChange={(value) => update('location', value)} /><Field label="رقم الهاتف" value={profile.phone} onChange={(value) => update('phone', value)} /><Field label="البريد الإلكتروني" value={user?.email ?? ''} onChange={() => undefined} /><div className="md:col-span-2"><Field label="الملخص المهني" value={profile.summary} onChange={(value) => update('summary', value)} multiline /></div></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">المعلومات الشخصية</CardTitle></CardHeader><CardContent className="grid gap-5 md:grid-cols-2"><Field label="الاسم الكامل" value={profile.name ?? ''} onChange={(value) => update('name', value)} /><Field label="البريد الإلكتروني" value={profile.email ?? ''} onChange={(value) => update('email', value)} /><Field label="العنوان المهني" value={profile.headline} onChange={(value) => update('headline', value)} /><Field label="الموقع" value={profile.location} onChange={(value) => update('location', value)} /><Field label="رقم الهاتف" value={profile.phone} onChange={(value) => update('phone', value)} /><Field label="سنوات الخبرة" value={profile.yearsExperience == null ? '' : String(profile.yearsExperience)} onChange={(value) => update('yearsExperience', value.trim() === '' ? null : Math.max(0, Math.min(50, Number(value) || 0)))} /><div className="md:col-span-2"><Field label="الملخص المهني" value={profile.summary} onChange={(value) => update('summary', value)} multiline />{!profile.summary.trim() && profile.cvStatus === 'analyzed' && (<div className="mt-3"><Button type="button" variant="outline" onClick={createSummary} disabled={summaryBusy} className="border-primary/40 text-primary hover:bg-primary/10" data-testid="button-ai-summary"><Sparkles className="me-2 h-4 w-4" />{summaryBusy ? 'جارٍ الإنشاء من السيرة…' : 'أنشئ ملخصاً مهنياً من سيرتي بالذكاء الاصطناعي'}</Button>{summaryError && <p role="alert" className="mt-2 text-xs font-semibold text-destructive" data-testid="error-ai-summary">{summaryError}</p>}</div>)}</div></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">المهارات</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2">{profile.skills.map((skill: import('@/types').Skill) => <span key={skill.id} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{skill.name}<button onClick={() => update('skills', profile.skills.filter((item: import('@/types').Skill) => item.id !== skill.id))} aria-label={`إزالة ${skill.name}`} className="text-primary/60 hover:text-destructive">×</button></span>)}</div><div className="mt-5 flex max-w-md gap-2"><Input value={newSkill} onChange={(event) => setNewSkill(event.target.value)} placeholder="أضف مهارة جديدة" data-testid="input-new-candidate-skill" /><Button type="button" variant="outline" onClick={addSkill} data-testid="button-add-candidate-skill"><Plus className="h-4 w-4" />إضافة</Button></div></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">الخبرة العملية</CardTitle></CardHeader><CardContent className="space-y-6">{profile.experiences.map((item) => <div key={item.id} className="relative flex gap-4 border-s border-border ps-5 last:border-s-0"><span className="absolute -start-1.5 top-1 h-3 w-3 rounded-full bg-accent" /><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{item.role}</p><span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{item.startDate} — {item.endDate}</span></div><p className="mt-1 text-xs text-muted-foreground">{item.company} · {item.location}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p></div></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('experience')} aria-expanded={section === 'experience'} data-testid="button-add-experience"><Plus className="h-4 w-4" />إضافة خبرة</Button>{section === 'experience' && <AddSectionForm title={SECTION_FORMS.experience.title} fields={SECTION_FORMS.experience.fields} testid="experience" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('experience', values)} onCancel={() => setSection('')} />}</CardContent></Card>
-      <div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">التعليم</CardTitle></CardHeader><CardContent className="space-y-4">{profile.education.map((item) => <div key={item.id} className="rounded-xl bg-secondary/60 p-4"><p className="font-bold">{item.degree}</p><p className="mt-1 text-xs text-muted-foreground">{item.field}</p><p className="mt-2 text-xs">{item.institution} · {item.year}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('education')} aria-expanded={section === 'education'} data-testid="button-add-education"><Plus className="h-4 w-4" />إضافة تعليم</Button>{section === 'education' && <AddSectionForm title={SECTION_FORMS.education.title} fields={SECTION_FORMS.education.fields} testid="education" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('education', values)} onCancel={() => setSection('')} />}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">المشاريع</CardTitle></CardHeader><CardContent className="space-y-4">{profile.projects.map((item) => <div key={item.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between"><p className="font-bold">{item.name}</p><Globe2 className="h-4 w-4 text-primary" /></div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('project')} aria-expanded={section === 'project'} data-testid="button-add-project"><Plus className="h-4 w-4" />إضافة مشروع</Button>{section === 'project' && <AddSectionForm title={SECTION_FORMS.project.title} fields={SECTION_FORMS.project.fields} testid="project" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('project', values)} onCancel={() => setSection('')} />}</CardContent></Card></div>
-      <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div></div>)}<Button type="button" variant="outline" className="border-dashed" onClick={() => toggleSection('certification')} aria-expanded={section === 'certification'} data-testid="button-add-certification"><Plus className="h-4 w-4" />إضافة شهادة</Button>{section === 'certification' && <AddSectionForm title={SECTION_FORMS.certification.title} fields={SECTION_FORMS.certification.fields} testid="certification" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('certification', values)} onCancel={() => setSection('')} />}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">الخبرة العملية</CardTitle></CardHeader><CardContent className="space-y-6">{profile.experiences.map((item) => <div key={item.id} className="relative flex gap-4 border-s border-border ps-5 last:border-s-0" data-testid={`row-experience-${item.id}`}><span className="absolute -start-1.5 top-1 h-3 w-3 rounded-full bg-accent" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{item.role}</p><span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">{item.startDate} — {item.current ? 'حتى الآن' : item.endDate}</span></div><p className="mt-1 text-xs text-muted-foreground">{item.company} · {item.location}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p></div><ItemActions kind="experience" id={item.id} busy={itemBusy} onEdit={() => startEdit('experience', item.id)} onDelete={() => removeSectionItem('experience', item.id)} /></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('experience')} aria-expanded={section === 'experience'} data-testid="button-add-experience"><Plus className="h-4 w-4" />إضافة خبرة</Button>{section === 'experience' && <AddSectionForm title={SECTION_FORMS.experience.title} fields={SECTION_FORMS.experience.fields} testid="experience" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('experience', values)} onCancel={() => setSection('')} />}{editingExperience && <AddSectionForm title={SECTION_FORMS.experience.editTitle} fields={SECTION_FORMS.experience.fields} testid="experience-edit" busy={itemBusy} error={itemError} initialValues={{ role: editingExperience.role, company: editingExperience.company, location: editingExperience.location ?? '', startDate: editingExperience.startDate ?? '', endDate: editingExperience.endDate ?? '', current: editingExperience.current === true, description: editingExperience.description ?? '' }} onSubmit={(values) => editSectionItem('experience', editingExperience.id, values)} onCancel={() => setEditing(null)} />}</CardContent></Card>
+      <div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">التعليم</CardTitle></CardHeader><CardContent className="space-y-4">{profile.education.map((item) => <div key={item.id} className="flex items-start justify-between gap-2 rounded-xl bg-secondary/60 p-4" data-testid={`row-education-${item.id}`}><div className="min-w-0"><p className="font-bold">{item.degree}</p><p className="mt-1 text-xs text-muted-foreground">{item.field}</p><p className="mt-2 text-xs">{item.institution} · {item.year}</p></div><ItemActions kind="education" id={item.id} busy={itemBusy} onEdit={() => startEdit('education', item.id)} onDelete={() => removeSectionItem('education', item.id)} /></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('education')} aria-expanded={section === 'education'} data-testid="button-add-education"><Plus className="h-4 w-4" />إضافة تعليم</Button>{section === 'education' && <AddSectionForm title={SECTION_FORMS.education.title} fields={SECTION_FORMS.education.fields} testid="education" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('education', values)} onCancel={() => setSection('')} />}{editingEducation && <AddSectionForm title={SECTION_FORMS.education.editTitle} fields={SECTION_FORMS.education.fields} testid="education-edit" busy={itemBusy} error={itemError} initialValues={{ degree: editingEducation.degree, field: editingEducation.field ?? '', institution: editingEducation.institution, year: String(editingEducation.year ?? '') }} onSubmit={(values) => editSectionItem('education', editingEducation.id, values)} onCancel={() => setEditing(null)} />}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">المشاريع</CardTitle></CardHeader><CardContent className="space-y-4">{profile.projects.map((item) => <div key={item.id} className="flex items-start justify-between gap-2 rounded-xl border border-border p-4" data-testid={`row-project-${item.id}`}><div className="min-w-0"><div className="flex items-center justify-between"><p className="font-bold">{item.name}</p><Globe2 className="h-4 w-4 shrink-0 text-primary" /></div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p>{item.url && <p className="mt-2 truncate text-xs text-primary">{item.url}</p>}</div><ItemActions kind="project" id={item.id} busy={itemBusy} onEdit={() => startEdit('project', item.id)} onDelete={() => removeSectionItem('project', item.id)} /></div>)}<Button type="button" variant="outline" className="w-full border-dashed" onClick={() => toggleSection('project')} aria-expanded={section === 'project'} data-testid="button-add-project"><Plus className="h-4 w-4" />إضافة مشروع</Button>{section === 'project' && <AddSectionForm title={SECTION_FORMS.project.title} fields={SECTION_FORMS.project.fields} testid="project" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('project', values)} onCancel={() => setSection('')} />}{editingProject && <AddSectionForm title={SECTION_FORMS.project.editTitle} fields={SECTION_FORMS.project.fields} testid="project-edit" busy={itemBusy} error={itemError} initialValues={{ name: editingProject.name, url: editingProject.url ?? '', description: editingProject.description ?? '' }} onSubmit={(values) => editSectionItem('project', editingProject.id, values)} onCancel={() => setEditing(null)} />}</CardContent></Card></div>
+      <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4" data-testid={`row-certification-${item.id}`}><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div><ItemActions kind="certification" id={item.id} busy={itemBusy} onEdit={() => startEdit('certification', item.id)} onDelete={() => removeSectionItem('certification', item.id)} /></div>)}<Button type="button" variant="outline" className="border-dashed" onClick={() => toggleSection('certification')} aria-expanded={section === 'certification'} data-testid="button-add-certification"><Plus className="h-4 w-4" />إضافة شهادة</Button>{section === 'certification' && <AddSectionForm title={SECTION_FORMS.certification.title} fields={SECTION_FORMS.certification.fields} testid="certification" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('certification', values)} onCancel={() => setSection('')} />}{editingCertification && <AddSectionForm title={SECTION_FORMS.certification.editTitle} fields={SECTION_FORMS.certification.fields} testid="certification-edit" busy={itemBusy} error={itemError} initialValues={{ name: editingCertification.name, issuer: editingCertification.issuer ?? '', year: String(editingCertification.year ?? '') }} onSubmit={(values) => editSectionItem('certification', editingCertification.id, values)} onCancel={() => setEditing(null)} />}</CardContent></Card>
     </div><div className="space-y-6">
-      <Card className="bg-secondary/50"><CardHeader><CardTitle className="text-base">تفضيلات العمل</CardTitle></CardHeader><CardContent className="space-y-4"><label className="block text-xs font-semibold">المجالات المفضلة<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.industries[0] ?? ''} onChange={(event) => update('preferences', { ...profile.preferences, industries: [event.target.value] })}><option>تقنية المعلومات</option><option>التقنية المالية</option><option>الاستشارات</option></select></label><label className="block text-xs font-semibold">نوع العقد<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.contract} onChange={(event) => update('preferences', { ...profile.preferences, contract: event.target.value as CandidateProfile['preferences']['contract'] })}><option value="full-time">دوام كامل</option><option value="part-time">دوام جزئي</option><option value="contract">عقد مستقل</option></select></label><label className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-xs"><span><span className="block font-bold">العمل عن بعد</span><span className="mt-1 block text-muted-foreground">أظهر فرص العمل المرنة</span></span><input type="checkbox" checked={profile.preferences.remote} onChange={(event) => update('preferences', { ...profile.preferences, remote: event.target.checked })} /></label></CardContent></Card>
+      <Card className="bg-secondary/50"><CardHeader><CardTitle className="text-base">تفضيلات العمل</CardTitle></CardHeader><CardContent className="space-y-4"><label className="block text-xs font-semibold">المجالات المفضلة<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.industries[0] ?? ''} onChange={(event) => update('preferences', { ...profile.preferences, industries: [event.target.value] })}><option value="">— اختر —</option><option>تقنية المعلومات</option><option>التقنية المالية</option><option>التسويق</option><option>الاستشارات</option></select></label><label className="block text-xs font-semibold">نوع العقد<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.contract} onChange={(event) => update('preferences', { ...profile.preferences, contract: event.target.value as CandidateProfile['preferences']['contract'] })}><option value="full-time">دوام كامل</option><option value="part-time">دوام جزئي</option><option value="contract">عقد مستقل</option><option value="internship">تدريب</option></select></label><label className="block text-xs font-semibold">الحد الأدنى للراتب المتوقع (ريال)<input type="number" min={0} value={profile.preferences.salaryMin ?? ''} placeholder="مثال: 12000" data-testid="input-salary-min" className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal" onChange={(event) => update('preferences', { ...profile.preferences, salaryMin: event.target.value === '' ? null : Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-xs"><span><span className="block font-bold">العمل عن بعد</span><span className="mt-1 block text-muted-foreground">أظهر فرص العمل المرنة</span></span><input type="checkbox" checked={profile.preferences.remote} onChange={(event) => update('preferences', { ...profile.preferences, remote: event.target.checked })} data-testid="toggle-remote" /></label></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">السيرة الذاتية</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{profile.cvStatus !== 'missing' ? 'السيرة المرفوعة' : 'لم تُرفع سيرة بعد'}</p><p className="mt-1 text-xs text-muted-foreground">{profile.cvStatus === 'analyzed' ? 'تم التحليل — راجع المعلومات المستخرجة' : 'ارفع سيرتك من صفحة السيرة الذاتية'}</p></div></div><Link href="/seeker/cv" className="mt-5 block rounded-lg border border-border px-3 py-2.5 text-center text-xs font-bold hover:bg-muted">مراجعة السيرة</Link></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">الظهور والخصوصية</CardTitle></CardHeader><CardContent className="space-y-3 text-xs"><label className="flex items-start gap-3"><input type="checkbox" defaultChecked className="mt-0.5" /><span><span className="font-bold">السماح للشركات برؤية ملفي</span><span className="mt-1 block leading-5 text-muted-foreground">اعرض ملفك ضمن التوصيات المناسبة فقط.</span></span></label><label className="flex items-start gap-3"><input type="checkbox" defaultChecked className="mt-0.5" /><span><span className="font-bold">إشعارات الفرص الجديدة</span><span className="mt-1 block leading-5 text-muted-foreground">أرسل لي فرصاً تتجاوز 80% تطابق.</span></span></label></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">الظهور والخصوصية</CardTitle><CardTitle className="text-xs font-normal text-muted-foreground">تُحفظ مع «حفظ الملف».</CardTitle></CardHeader><CardContent className="space-y-3 text-xs"><label className="flex items-start gap-3"><input type="checkbox" checked={profile.visibleToCompanies !== false} onChange={(event) => update('visibleToCompanies', event.target.checked)} className="mt-0.5" data-testid="toggle-visible-companies" /><span><span className="font-bold">السماح للشركات برؤية ملفي</span><span className="mt-1 block leading-5 text-muted-foreground">عند تعطيله يختفي ملفك من قوائم المرشحين والتوصيات — طلبات تقدّمك تبقى ظاهرة.</span></span></label><label className="flex items-start gap-3"><input type="checkbox" checked={profile.jobAlerts !== false} onChange={(event) => update('jobAlerts', event.target.checked)} className="mt-0.5" data-testid="toggle-job-alerts" /><span><span className="font-bold">تنبيهات الفرص المطابقة</span><span className="mt-1 block leading-5 text-muted-foreground">أرسل لي إشعاراً عند نشر وظيفة يتجاوز تطابقها 80% مع ملفي.</span></span></label></CardContent></Card>
     </div></div>
   </RoleShell>;
 }

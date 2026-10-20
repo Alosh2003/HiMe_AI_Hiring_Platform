@@ -246,6 +246,23 @@ export const handlers = [
     await delay(10);
     return HttpResponse.json({ id: 'cert-new', ...(await request.json() as object), completion: 84, reassessment: { completion: 84, reassessedMatches: 2, changedMatches: 0 } }, { status: 201 });
   }),
+  // Section item editing: PUT echoes the stored row, DELETE returns the
+  // reassessment exactly like the live routes.
+  ...(['experience', 'education', 'project', 'certification'] as const).flatMap((kind) => [
+    http.put(`*/api/candidates/${kind}/:id`, async ({ request }) => {
+      await delay(10);
+      const body = await request.json() as object;
+      return HttpResponse.json({ ...body, completion: 82, reassessment: { completion: 82, reassessedMatches: 2, changedMatches: 1 } });
+    }),
+    http.delete(`*/api/candidates/${kind}/:id`, async () => {
+      await delay(10);
+      return HttpResponse.json({ deleted: true, completion: 74, reassessment: { completion: 74, reassessedMatches: 2, changedMatches: 1 } });
+    }),
+  ]),
+  http.post('*/api/candidates/profile/summary-ai', async () => {
+    await delay(10);
+    return HttpResponse.json({ summary: 'ملخص مهني أنشأه الذكاء الاصطناعي من محتوى السيرة المرفوعة.', completion: 88, reassessment: { completion: 88, reassessedMatches: 2, changedMatches: 1 } });
+  }),
   http.post('*/api/candidates/photo', async () => {
     await delay(10);
     return HttpResponse.json({ avatarUrl: '/api/avatars/test-avatar.png' }, { status: 201 });

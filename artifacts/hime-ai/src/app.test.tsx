@@ -1028,6 +1028,153 @@ describe('brand motif', () => {
 
 // ─── CV upload ──────────────────────────────────────────────────────────────
 
+// ─── Profile editing: account fields, section items, privacy, AI summary ────
+
+/** Standalone profile payload for registry overrides (msw internals stay local). */
+const profileFixture = {
+  id: '11111111-1111-4111-8111-111111111111',
+  userId: '11111111-2222-4222-8222-222222222222',
+  headline: 'مصمم منتج',
+  summary: '',
+  location: 'الرياض، السعودية',
+  yearsExperience: 4,
+  completion: 82,
+  cvUrl: '/files/cv-sample.pdf',
+  cvStatus: 'analyzed' as const,
+  skills: [{ id: 1, name: 'Figma', category: 'technical' }],
+  experiences: [{ id: 'x1', role: 'مصمم منتج', company: 'ستوديو', location: 'الرياض', startDate: '2021', current: true }],
+  education: [{ id: 'ed1', degree: 'بكالوريوس', field: 'تصميم', institution: 'جامعة', year: 2020 }],
+  projects: [{ id: 'p1', name: 'مَسار', description: 'تجربة مالية' }],
+  certifications: [{ id: 'c1', name: 'Google UX', issuer: 'Google', year: 2022 }],
+  preferences: { industries: ['تقنية المعلومات'], locations: ['الرياض'], contract: 'full-time', remote: true },
+};
+
+describe('profile editing', () => {
+  it('prefills and saves an inline edit of a work experience', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.put('*/api/candidates/experience/x1', async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({
+          id: 'x1', role: 'مصمم منتجات أول', company: 'ستوديو', startDate: '2021',
+          completion: 83, reassessment: { completion: 83, reassessedMatches: 2, changedMatches: 1 },
+        });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-edit-experience-x1'));
+    // The form carries the stored row's data, not blanks.
+    expect(screen.getByTestId('input-experience-edit-role')).toHaveValue('مصمم منتجات');
+    fireEvent.change(screen.getByTestId('input-experience-edit-role'), { target: { value: 'مصمم منتجات أول' } });
+    fireEvent.click(screen.getByTestId('button-submit-experience-edit'));
+
+    await waitFor(() => expect(screen.queryByTestId('form-experience-edit')).toBeNull());
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ role: 'مصمم منتجات أول', company: 'ستوديو', current: true });
+    expect(await screen.findByText('مصمم منتجات أول')).toBeInTheDocument();
+
+    // Editing is a scored mutation — the reassessment shows, like a save.
+    const note = await screen.findByTestId('reassess-profile');
+    expect(note).toHaveTextContent('نسبة الاكتمال الآن 83%');
+  });
+
+  it('requires inline confirmation before deleting an education row', async () => {
+    setRole('seeker');
+    const deletes: string[] = [];
+    server.use(
+      http.delete('*/api/candidates/education/ed1', async () => {
+        deletes.push('ed1');
+        return HttpResponse.json({ deleted: true, completion: 70, reassessment: { completion: 70, reassessedMatches: 1, changedMatches: 0 } });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-delete-education-ed1'));
+    // The first click only asks — nothing has been posted, nothing removed.
+    expect(deletes).toHaveLength(0);
+    expect(screen.getByTestId('row-education-ed1')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-confirm-delete-education-ed1'));
+
+    await waitFor(() => expect(deletes).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('row-education-ed1')).toBeNull());
+    const note = await screen.findByTestId('reassess-profile');
+    expect(note).toHaveTextContent('نسبة الاكتمال الآن 70%');
+  });
+
+  it('saves the edited account name and privacy toggles, then syncs the session', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.patch('*/api/candidates/profile', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json({
+          ...profileFixture,
+          completion: 88,
+          name: body.name,
+          email: body.email,
+          visibleToCompanies: body.visibleToCompanies,
+          jobAlerts: body.jobAlerts,
+          reassessment: { completion: 88, reassessedMatches: 0, changedMatches: 0 },
+        });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.change(await screen.findByTestId('input-الاسم الكامل'), { target: { value: 'ليان المحررة' } });
+    fireEvent.click(screen.getByTestId('toggle-visible-companies'));
+    fireEvent.click(screen.getByTestId('toggle-job-alerts'));
+    fireEvent.click(screen.getByTestId('button-save-full-candidate-profile'));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ name: 'ليان المحررة', visibleToCompanies: false, jobAlerts: false });
+    // The stored session follows the saved account row — the header picks the
+    // new identity up without a re-login.
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem('hime_ai_user') ?? '{}') as { name?: string };
+      expect(stored.name).toBe('ليان المحررة');
+    });
+  });
+
+  it('asks the AI for a summary when the profile has none and the CV is analyzed', async () => {
+    setRole('seeker');
+    server.use(
+      http.get('*/api/candidates/profile', () =>
+        HttpResponse.json({ ...profileFixture, summary: '' })),
+      http.post('*/api/candidates/profile/summary-ai', () =>
+        HttpResponse.json({ summary: 'ملخص مهني مُولّد من محتوى السيرة المرفوعة.', completion: 88, reassessment: { completion: 88, reassessedMatches: 1, changedMatches: 1 } })),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-ai-summary'));
+
+    // The generated text lands in the summary field, never written silently —
+    // the seeker reads it and accepts it with the regular save button.
+    expect(await screen.findByTestId('input-الملخص المهني')).toHaveValue('ملخص مهني مُولّد من محتوى السيرة المرفوعة.');
+    await screen.findByTestId('reassess-profile');
+  });
+
+  it('shows an inline error when the AI summary request fails', async () => {
+    setRole('seeker');
+    server.use(
+      http.get('*/api/candidates/profile', () =>
+        HttpResponse.json({ ...profileFixture, summary: '' })),
+      http.post('*/api/candidates/profile/summary-ai', () =>
+        HttpResponse.json({ error: 'تعذر إنشاء الملخص بالذكاء الاصطناعي الآن — أعد المحاولة.' }, { status: 502 })),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-ai-summary'));
+
+    expect(await screen.findByTestId('error-ai-summary')).toHaveTextContent('تعذر إنشاء الملخص');
+    // The form stays usable; nothing was written.
+    expect(screen.getByTestId('input-الملخص المهني')).toHaveValue('');
+    expect(screen.getByTestId('button-ai-summary')).toBeEnabled();
+  });
+});
+
 describe('CV upload', () => {
   it('rejects an unsupported file type', async () => {
     setRole('seeker');
@@ -1094,6 +1241,40 @@ describe('CV upload', () => {
     expect(counts).toHaveTextContent('مؤهل دراسي');
     expect(counts).toHaveTextContent('مشروع');
     expect(screen.queryByTestId('warning-cv-parse')).not.toBeInTheDocument();
+  });
+
+  it('tells the seeker when the AI had to write the missing summary', async () => {
+    setRole('seeker');
+    localStorage.setItem('hime_ai_token', 'test-jwt-token');
+    server.use(
+      http.post('*/api/candidates/cv', async () => {
+        return HttpResponse.json({
+          ...profileFixture,
+          cvUrl: '/files/test.pdf',
+          parsed: true,
+          summaryGenerated: true,
+          summary: 'ملخص مهني أنشأه الذكاء الاصطناعي من محتوى السيرة.',
+          cvParsedData: {
+            headline: 'مهندس برمجيات أول',
+            skills: ['Node.js'],
+            experiences: [],
+            education: [],
+            projects: [],
+            certifications: [],
+          },
+        });
+      }),
+    );
+    renderAt('/seeker/cv');
+
+    await screen.findByText('AI extracted profile');
+    fireEvent.change(screen.getByTestId('input-cv-upload'), {
+      target: { files: [new File(['cv'], 'resume.pdf', { type: 'application/pdf' })] },
+    });
+
+    expect(await screen.findByTestId('status-cv-success', {}, { timeout: 5000 })).toBeInTheDocument();
+    const note = await screen.findByTestId('text-cv-summary-generated');
+    expect(note).toHaveTextContent('أنشأ الذكاء الاصطناعي');
   });
 
   it('reports a file it could not read instead of showing stale data', async () => {

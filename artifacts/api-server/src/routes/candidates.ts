@@ -1,15 +1,17 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { candidatesTable, experiencesTable, educationTable, projectsTable, certificationsTable, candidateSkillsTable, skillsTable, usersTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
+import { validateUuidParam } from "../middleware/validate-params";
 import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
+import { generateSummaryWithLLM } from "../ai/llm";
 import { reassessCandidate } from "../ai/match-snapshot";
-import { saveFile, deleteFile } from "../services/file-storage";
+import { saveFile, deleteFile, getFile } from "../services/file-storage";
 import { parseDocument } from "../services/document-parser";
 
 /** Trim a value and treat "N/A"-style placeholders from the model as absent. */
@@ -158,6 +160,13 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
     location: z.string().max(200).nullish(),
     yearsExperience: z.number().int().min(0).max(50).nullish(),
     phone: z.string().max(30).nullish(),
+    // Account-level fields: the profile page owns the seeker's whole record,
+    // so the name and email are editable here too (an email change is
+    // un-verified and must not collide with another account).
+    name: z.string().trim().min(2).max(120).nullish(),
+    email: z.string().trim().max(200).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "بريد إلكتروني غير صالح").nullish(),
+    visibleToCompanies: z.boolean().nullish(),
+    jobAlerts: z.boolean().nullish(),
     preferences: z.object({
       industries: z.array(z.string()).optional(),
       contractTypes: z.array(z.string()).optional(),
@@ -191,7 +200,7 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
     return;
   }
 
-  const { skills, preferences, phone, ...profileData } = parsed.data;
+  const { skills, preferences, phone, name, email, ...profileData } = parsed.data;
 
   const updateData: Record<string, unknown> = { ...profileData };
   if (preferences) {
@@ -212,6 +221,42 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
       .where(eq(candidatesTable.id, candidate.id))
       .returning();
     saved = updated[0] ?? candidate;
+  }
+
+  // Name and email live on the account row. An email change also flips the
+  // account back to unverified — the old address proved nothing about the
+  // new one — and a duplicate address is refused with an honest 409.
+  const accountPatch: Record<string, unknown> = {};
+  if (name !== undefined || email !== undefined) {
+    const account = await db.query.usersTable.findFirst({
+      where: eq(usersTable.id, req.user!.userId),
+    });
+    if (!account) {
+      res.status(404).json({ error: "Account not found" });
+      return;
+    }
+    if (name !== undefined && name !== null && name !== account.name) {
+      accountPatch["name"] = name;
+    }
+    if (email !== undefined && email !== null) {
+      const lower = email.toLowerCase();
+      if (lower !== account.email.toLowerCase()) {
+        const taken = await db.query.usersTable.findFirst({
+          where: and(eq(usersTable.email, lower), ne(usersTable.id, account.id)),
+        });
+        if (taken) {
+          res.status(409).json({ error: "هذا البريد الإلكتروني مستخدم في حساب آخر." });
+          return;
+        }
+        accountPatch["email"] = lower;
+        accountPatch["emailVerified"] = false;
+      }
+    }
+  }
+  if (Object.keys(accountPatch).length > 0) {
+    await db.update(usersTable)
+      .set({ ...accountPatch, updatedAt: new Date() })
+      .where(eq(usersTable.id, req.user!.userId));
   }
 
   // The phone number lives on the account row, not the candidate profile —
@@ -257,8 +302,18 @@ router.patch("/profile", authMiddleware, requireRole("seeker"), async (req: Auth
   const assessment = await reassessCandidate(candidate.id);
   const fresh = { ...saved, completion: assessment.completion };
 
+  // When the account row changed, echo the new identity back so the client
+  // can refresh the session (header name/avatar) without a re-login.
+  const account = Object.keys(accountPatch).length > 0
+    ? await db.query.usersTable.findFirst({
+        columns: { name: true, email: true },
+        where: eq(usersTable.id, req.user!.userId),
+      })
+    : undefined;
+
   res.json({
     ...fresh,
+    ...(account ?? {}),
     cvStatus: cvStatusOf(fresh),
     reassessment: {
       completion: assessment.completion,
@@ -419,6 +474,110 @@ router.post("/certification", authMiddleware, requireRole("seeker"), async (req:
   });
 });
 
+// ─── Section item editing (PUT / DELETE) ───────────────────────────────────
+// Every item a seeker adds must also be editable and removable — an add-only
+// profile locks mistakes in forever. Ownership is enforced (items are matched
+// by id AND the caller's own candidate id) and every mutation re-runs the
+// same assessment a save does.
+
+const experienceSchema = z.object({
+  role: z.string().min(2),
+  company: z.string().min(2),
+  location: z.string().optional(),
+  description: z.string().optional(),
+  startDate: z.string().min(1),
+  endDate: z.string().optional(),
+  current: z.boolean().default(false),
+});
+const educationSchema = z.object({
+  degree: z.string().min(2),
+  field: z.string().optional(),
+  institution: z.string().min(2),
+  year: z.number().int().min(1950).max(2100),
+});
+const projectSchema = z.object({
+  name: z.string().min(2).max(200),
+  description: z.string().max(2000).optional(),
+  url: z.string().max(500).optional(),
+});
+const certificationSchema = z.object({
+  name: z.string().min(2).max(200),
+  issuer: z.string().max(200).optional(),
+  year: z.number().int().min(1950).max(2100).optional(),
+});
+
+type SectionTable = typeof experiencesTable | typeof educationTable | typeof projectsTable | typeof certificationsTable;
+
+function registerSectionCrud<TSchema extends z.ZodType>(kind: string, table: SectionTable, schema: TSchema) {
+  router.put(`/${kind}/:id`, authMiddleware, requireRole("seeker"), validateUuidParam("id"), async (req: AuthRequest, res) => {
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+
+    const candidate = await db.query.candidatesTable.findFirst({
+      where: eq(candidatesTable.userId, req.user!.userId),
+    });
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate profile not found" });
+      return;
+    }
+
+    const id = String(req.params["id"]);
+    const updated = await db.update(table)
+      .set(parsed.data as Record<string, unknown>)
+      .where(and(eq(table.id, id), eq(table.candidateId, candidate.id)))
+      .returning();
+
+    if (updated.length === 0) {
+      res.status(404).json({ error: "العنصر غير موجود — ربما حُذف سابقاً." });
+      return;
+    }
+
+    const assessment = await reassessCandidate(candidate.id);
+    res.json({
+      ...updated[0],
+      completion: assessment.completion,
+      reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+    });
+  });
+
+  router.delete(`/${kind}/:id`, authMiddleware, requireRole("seeker"), validateUuidParam("id"), async (req: AuthRequest, res) => {
+    const candidate = await db.query.candidatesTable.findFirst({
+      where: eq(candidatesTable.userId, req.user!.userId),
+    });
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate profile not found" });
+      return;
+    }
+
+    const id = String(req.params["id"]);
+    const removed = await db.delete(table)
+      .where(and(eq(table.id, id), eq(table.candidateId, candidate.id)))
+      .returning({ id: table.id });
+
+    if (removed.length === 0) {
+      res.status(404).json({ error: "العنصر غير موجود — ربما حُذف سابقاً." });
+      return;
+    }
+
+    // A deletion moves completion and every stored match score — same
+    // reassessment as a save, and the UI needs the numbers to show it.
+    const assessment = await reassessCandidate(candidate.id);
+    res.json({
+      deleted: true,
+      completion: assessment.completion,
+      reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+    });
+  });
+}
+
+registerSectionCrud("experience", experiencesTable, experienceSchema);
+registerSectionCrud("education", educationTable, educationSchema);
+registerSectionCrud("project", projectsTable, projectSchema);
+registerSectionCrud("certification", certificationsTable, certificationSchema);
+
 /**
  * Uploads a profile photo.
  *
@@ -519,6 +678,8 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
         certifications?: { name: string; issuer?: string; year?: number }[];
       } | undefined;
       let parseError: string | undefined;
+      /** True when the AI wrote a professional summary the CV itself lacked. */
+      let summaryGenerated = false;
 
       if (cvText) {
         try {
@@ -632,6 +793,34 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
               });
             }
           });
+
+          // Fill a summary gap from the CV itself: many CVs jump straight to
+          // the experience list, and the profile must not ship an empty
+          // summary when the content to write one is right here. Only fills
+          // a gap — a summary the seeker already has (or one the CV carried)
+          // is never replaced.
+          if (!cleanField(llmResult.summary) && !cleanField(candidate.summary)) {
+            try {
+              const generated = await generateSummaryWithLLM({
+                cvText,
+                headline: llmResult.headline,
+                skills: llmResult.skills,
+                roles: llmResult.experiences.filter((e) => cleanField(e?.role)).map((e) => `${e.role} — ${e.company}`),
+              });
+              const cleaned = cleanField(generated);
+              if (cleaned) {
+                parsedData.summary = cleaned;
+                await db.update(candidatesTable)
+                  .set({ summary: cleaned, updatedAt: new Date() })
+                  .where(eq(candidatesTable.id, candidate.id));
+                summaryGenerated = true;
+              }
+            } catch (err) {
+              // Not fatal: the upload succeeded; the profile stays honest
+              // about the missing summary and the seeker can retry later.
+              logger.warn({ err }, "AI summary generation from the CV failed");
+            }
+          }
         } catch (err) {
           // Surface the reason instead of returning an empty profile with no
           // indication that parsing failed.
@@ -659,6 +848,7 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
         cvStatus: cvStatusOf(updated[0]),
         parsed: Boolean(parsedData?.headline || parsedData?.skills?.length),
         ...(parseError ? { parseError } : {}),
+        ...(summaryGenerated ? { summaryGenerated: true } : {}),
         reassessment: {
           completion: assessment.completion,
           reassessedMatches: assessment.reassessedMatches,
@@ -729,6 +919,88 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
     res.json({ completion: assessment.completion, reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches } });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Upload failed" });
+  }
+});
+
+// ─── On-demand AI summary ──────────────────────────────────────────────────
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".doc": "application/msword",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+};
+
+/**
+ * Fills the professional summary from the seeker's stored CV on an explicit
+ * click — for profiles uploaded before the upload-time generation existed,
+ * or whose summary was cleared. The AI never writes to the profile on its
+ * own; every failure is reported, never papered over with filler text.
+ */
+router.post("/profile/summary-ai", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  const candidate = await db.query.candidatesTable.findFirst({
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+  if (!candidate.cvUrl) {
+    res.status(400).json({ error: "ارفع سيرتك الذاتية أولاً — الملخص يُبنى من محتواها." });
+    return;
+  }
+
+  const fileName = path.basename(candidate.cvUrl);
+  const mime = MIME_BY_EXT[path.extname(fileName).toLowerCase()];
+  if (!mime) {
+    res.status(400).json({ error: "نوع ملف السيرة الحالي غير قابل للقراءة — ارفع الملف مجدداً." });
+    return;
+  }
+
+  let cvText = "";
+  try {
+    cvText = await parseDocument(await getFile(fileName), mime);
+  } catch {
+    // Missing/unreadable file — the 410 below says so honestly.
+  }
+  if (!cleanField(cvText)) {
+    res.status(410).json({ error: "تعذر قراءة نص السيرة المخزنة — ارفع الملف مجدداً." });
+    return;
+  }
+
+  try {
+    const [candidateSkills, experiences] = await Promise.all([
+      db.query.candidateSkillsTable.findMany({ where: eq(candidateSkillsTable.candidateId, candidate.id) }),
+      db.query.experiencesTable.findMany({ where: eq(experiencesTable.candidateId, candidate.id) }),
+    ]);
+    const skillRecords = candidateSkills.length > 0
+      ? await db.query.skillsTable.findMany({ where: inArray(skillsTable.id, candidateSkills.map((s) => s.skillId)) })
+      : [];
+
+    const generated = await generateSummaryWithLLM({
+      cvText,
+      headline: candidate.headline ?? undefined,
+      skills: skillRecords.map((s) => s.name),
+      roles: experiences.map((e) => `${e.role} — ${e.company}`),
+    });
+    const cleaned = cleanField(generated);
+    if (!cleaned) throw new Error("LLM returned an empty summary");
+
+    await db.update(candidatesTable)
+      .set({ summary: cleaned, updatedAt: new Date() })
+      .where(eq(candidatesTable.id, candidate.id));
+
+    // The summary is part of the scored profile — same reassessment as a save.
+    const assessment = await reassessCandidate(candidate.id);
+    res.json({
+      summary: cleaned,
+      completion: assessment.completion,
+      reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+    });
+  } catch (err) {
+    logger.error({ err }, "On-demand AI summary generation failed");
+    res.status(502).json({ error: "تعذر إنشاء الملخص بالذكاء الاصطناعي الآن — أعد المحاولة." });
   }
 });
 

@@ -331,6 +331,41 @@ Return ONLY the JSON object, no other text.`;
   }
 }
 
+// ─── Professional summary drafting ─────────────────────────────────────────
+
+/**
+ * Writes a professional summary from CV content for CVs that don't carry one
+ * (many CVs jump straight from the name to the experience list). Factual
+ * grounding only — the model may not invent skills, employers or years that
+ * the provided content does not mention. Throws on failure: the caller
+ * decides whether a missing summary is fatal (it usually is not).
+ */
+export async function generateSummaryWithLLM(input: {
+  cvText: string;
+  headline?: string;
+  skills?: string[];
+  roles?: string[];
+}): Promise<string> {
+  const systemPrompt = `You are a career writer. From the CV content provided, write ONE short professional summary (3-4 sentences) for the candidate's profile.
+Rules:
+- Write the summary in the SAME language the CV is written in (Arabic CV → Arabic summary, English CV → English summary).
+- Use ONLY facts present in the provided content: roles, employers, skills, education. Never invent employers, skills, years or credentials.
+- Confident, professional tone; no first person, no clichés like "hard-working team player".
+- Plain text only — no heading, no bullets, no JSON.`;
+
+  const userPrompt = `Headline: ${input.headline?.trim() || "-"}
+Known skills: ${input.skills?.slice(0, 20).join(", ") || "-"}
+Recent roles: ${input.roles?.slice(0, 10).join(" | ") || "-"}
+
+CV content:
+${input.cvText.slice(0, 12_000)}`;
+
+  const result = await callLLM(systemPrompt, userPrompt, 600);
+  const summary = result.content.trim().replace(/^["'\s]+|["'\s]+$/g, "");
+  if (!summary) throw new Error("LLM returned an empty summary");
+  return summary.slice(0, 2000);
+}
+
 // ─── CV Assessment (public, role-scoped) ────────────────────────────────────
 
 export interface CvAssessment {

@@ -19,6 +19,10 @@ export const candidatesTable = pgTable("candidates", {
     salaryMin?: number;
   }>(),
   completion: integer("completion").notNull().default(0),
+  // Privacy + alerts the seeker controls from the profile page. Both default
+  // on so existing candidates keep their current visibility/notifications.
+  visibleToCompanies: boolean("visible_to_companies").notNull().default(true),
+  jobAlerts: boolean("job_alerts").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

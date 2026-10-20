@@ -307,12 +307,14 @@ export function SeekerCvPage() {
   } | null>(null);
   const [uploadError, setUploadError] = useState('');
   const [parseWarning, setParseWarning] = useState('');
+  const [summaryCreated, setSummaryCreated] = useState(false);
 
   const upload = async (file?: File) => {
     const validationError = validateCvFile(file);
     setUploadError(validationError);
     setParseWarning('');
     setUploaded(false);
+    setSummaryCreated(false);
     if (validationError || !file) return;
 
     setUploading(true);
@@ -322,13 +324,16 @@ export function SeekerCvPage() {
       // Show what the model actually pulled out of THIS file — and say so
       // when it could not be read instead of silently falling back to older
       // data that may not match the document at all.
-      const res = result as { cvParsedData?: typeof extracted; parsed?: boolean; parseError?: string };
+      const res = result as { cvParsedData?: typeof extracted; parsed?: boolean; parseError?: string; summaryGenerated?: boolean };
       if (res.cvParsedData && (res.parsed ?? true)) {
         setExtracted(res.cvParsedData);
       } else {
         setExtracted(null);
         setParseWarning(res.parseError || 'تعذر تحليل هذا الملف نصياً — تأكد أن السيرة نصية وليست صورة ممسوحة ضوئياً.');
       }
+      // When the CV carried no summary of its own, the AI wrote one from its
+      // content — say so, the seeker must review it like everything else.
+      setSummaryCreated(res.summaryGenerated === true);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'تعذر رفع السيرة الذاتية حالياً. حاول مرة أخرى.');
     } finally {
@@ -355,6 +360,7 @@ export function SeekerCvPage() {
             {uploadError && <p className="mt-3 rounded-lg bg-destructive/10 p-3 text-xs text-destructive" data-testid="error-cv-upload" role="alert">{uploadError}</p>}
             {uploaded && <div className="mt-3 space-y-3 rounded-lg bg-primary/10 p-4" data-testid="status-cv-success" role="status">
               <p className="text-xs font-semibold text-primary">تم رفع الملف واستخراج المعلومات تلقائياً.</p>
+              {summaryCreated && <p className="text-xs leading-6 text-primary/90" data-testid="text-cv-summary-generated">لم يحتوِ الملف على ملخص مهني — أنشأ الذكاء الاصطناعي واحداً من محتوى السيرة. راجعه في ملفك.</p>}
               <Button className="w-full" onClick={() => navigate('/seeker/profile')} data-testid="button-continue-profile">
                 متابعة إكمال بقية المعلومات <ArrowUpLeft className="h-4 w-4" />
               </Button>

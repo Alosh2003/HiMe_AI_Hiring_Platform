@@ -198,7 +198,7 @@ type ApiProfile = Omit<CandidateProfile, 'headline' | 'summary' | 'location' | '
   location: string | null;
   phone?: string | null;
   avatarUrl?: string | null;
-  preferences?: { industries?: string[]; contractTypes?: string[]; remote?: boolean } | null;
+  preferences?: { industries?: string[]; contractTypes?: string[]; remote?: boolean; salaryMin?: number | null } | null;
 };
 
 const CONTRACT_TYPES: readonly string[] = ['full-time', 'part-time', 'contract', 'internship'];
@@ -213,6 +213,10 @@ function normalizeProfile(raw: ApiProfile): CandidateProfile {
     location: raw.location ?? '',
     phone: raw.phone ?? '',
     avatarUrl: raw.avatarUrl ?? null,
+    yearsExperience: raw.yearsExperience ?? null,
+    // Payloads from before the privacy/alerts columns default them open.
+    visibleToCompanies: raw.visibleToCompanies ?? true,
+    jobAlerts: raw.jobAlerts ?? true,
     skills: raw.skills ?? [],
     experiences: raw.experiences ?? [],
     education: raw.education ?? [],
@@ -225,6 +229,7 @@ function normalizeProfile(raw: ApiProfile): CandidateProfile {
         ? storedContract as ContractType
         : 'full-time',
       remote: prefs.remote ?? false,
+      salaryMin: prefs.salaryMin ?? null,
     },
   };
 }
@@ -247,6 +252,9 @@ export async function updateProfile(data: Partial<CandidateProfile>): Promise<Wi
         industries: preferences.industries ?? [],
         contractTypes: preferences.contract ? [preferences.contract] : [],
         remote: preferences.remote ?? false,
+        // The salary expectation only crosses the wire when set — an explicit
+        // null clears it server-side.
+        ...(typeof preferences.salaryMin === 'number' ? { salaryMin: preferences.salaryMin } : {}),
       };
     }
     return apiRequest<WithReassessment<CandidateProfile>>('/candidates/profile', { method: 'PATCH', body: JSON.stringify(body) });
@@ -336,6 +344,73 @@ export async function addCertification(input: CertificationInput): Promise<WithR
   const created = { id: `cert-${Date.now()}`, issuer: '', ...input } as unknown as Certification;
   demoProfile.certifications = [created, ...demoProfile.certifications];
   return created;
+}
+
+// ─── Section item editing (update / delete) ────────────────────────────────
+// Every item the seeker adds is also editable and removable — an add-only
+// profile locks mistakes in. All four kinds answer with the same reassessment
+// payload a save does.
+
+export async function updateExperience(id: string, input: ExperienceInput): Promise<WithReassessment<Experience>> {
+  if (hasApi()) return apiRequest<WithReassessment<Experience>>(`/candidates/experience/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+  await wait();
+  const updated = { ...input, id } as Experience;
+  demoProfile.experiences = demoProfile.experiences.map((item) => (item.id === id ? updated : item));
+  return updated;
+}
+
+export async function updateEducation(id: string, input: EducationInput): Promise<WithReassessment<Education>> {
+  if (hasApi()) return apiRequest<WithReassessment<Education>>(`/candidates/education/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+  await wait();
+  const updated = { ...input, id } as unknown as Education;
+  demoProfile.education = demoProfile.education.map((item) => (item.id === id ? updated : item));
+  return updated;
+}
+
+export async function updateProject(id: string, input: ProjectInput): Promise<WithReassessment<Project>> {
+  if (hasApi()) return apiRequest<WithReassessment<Project>>(`/candidates/project/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+  await wait();
+  const updated = { ...input, id, skills: [] } as Project;
+  demoProfile.projects = demoProfile.projects.map((item) => (item.id === id ? updated : item));
+  return updated;
+}
+
+export async function updateCertification(id: string, input: CertificationInput): Promise<WithReassessment<Certification>> {
+  if (hasApi()) return apiRequest<WithReassessment<Certification>>(`/candidates/certification/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+  await wait();
+  const updated = { ...input, id } as unknown as Certification;
+  demoProfile.certifications = demoProfile.certifications.map((item) => (item.id === id ? updated : item));
+  return updated;
+}
+
+export type SectionKind = 'experience' | 'education' | 'project' | 'certification';
+
+const SECTION_LIST_KEYS: Record<SectionKind, 'experiences' | 'education' | 'projects' | 'certifications'> = {
+  experience: 'experiences',
+  education: 'education',
+  project: 'projects',
+  certification: 'certifications',
+};
+
+export async function deleteSectionItem(kind: SectionKind, id: string): Promise<WithReassessment<{ deleted: true }>> {
+  if (hasApi()) return apiRequest<WithReassessment<{ deleted: true }>>(`/candidates/${kind}/${id}`, { method: 'DELETE' });
+  await wait();
+  const lists = demoProfile as unknown as Record<string, Array<{ id: string }>>;
+  const key = SECTION_LIST_KEYS[kind];
+  lists[key] = lists[key].filter((item) => item.id !== id);
+  return { deleted: true };
+}
+
+/**
+ * Asks the AI to write the professional summary from the seeker's stored CV —
+ * only ever on this explicit call, never on its own.
+ */
+export async function generateSummary(): Promise<{ summary: string } & WithReassessment<{ completion: number }>> {
+  if (hasApi()) {
+    return apiRequest<{ summary: string } & WithReassessment<{ completion: number }>>('/candidates/profile/summary-ai', { method: 'POST' });
+  }
+  await wait(600);
+  return { summary: 'ملخص مهني مُولّد من محتوى السيرة الذاتية (وضع العرض).', completion: demoProfile.completion };
 }
 
 /**
