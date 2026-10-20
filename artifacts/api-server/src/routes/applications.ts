@@ -128,7 +128,7 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
   void emailUser(
     req.user!.userId,
     "application_received",
-    `HiMe AI — استلمنا طلبك لوظيفة: ${job.title}`,
+    `Hire me — استلمنا طلبك لوظيفة: ${job.title}`,
     `مرحباً،\n\nاستلمنا طلب التقديم على وظيفة "${job.title}". يمكنك متابعة حالة الطلبات من حسابك:\n${getConfig().FRONTEND_URL}/seeker/applications`,
   );
 
@@ -368,7 +368,7 @@ router.patch("/:id", authMiddleware, requireRole("company"), validateUuidParam("
         await emailUser(
           candidate.userId,
           "application_status",
-          `HiMe AI — ${statusLabels[updated[0].status] ?? "تحديث على طلب التقديم"}`,
+          `Hire me — ${statusLabels[updated[0].status] ?? "تحديث على طلب التقديم"}`,
           `مرحباً،\n\n${statusLabels[updated[0].status] ?? "حدّثنا حالة طلبك"}\nالوظيفة: ${job.title}\n\n${getConfig().FRONTEND_URL}/seeker/applications`,
         );
       }

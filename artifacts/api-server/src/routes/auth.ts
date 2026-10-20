@@ -129,7 +129,7 @@ router.post("/register", authRateLimiter, async (req, res) => {
     await sendEmail({
       to: email,
       kind: "email-verification",
-      subject: "HiMe AI — تأكيد البريد الإلكتروني",
+      subject: "Hire me — تأكيد البريد الإلكتروني",
       body: `مرحباً ${name}،\n\nأكمل التسجيل بزيارة هذا الرابط:\n${getConfig().FRONTEND_URL}/verify-email?token=${verifyTokenValue}\n\nالرابط صالح لمدة 24 ساعة.`,
     });
   } catch {
@@ -222,7 +222,7 @@ router.post("/forgot-password", authRateLimiter, async (req, res) => {
     await sendEmail({
       to: email,
       kind: "password-reset",
-      subject: "HiMe AI — إعادة تعيين كلمة المرور",
+      subject: "Hire me — إعادة تعيين كلمة المرور",
       body: `مرحباً ${user.name}،\n\nطلب إعادة تعيين كلمة المرور. افتح هذا الرابط (صالح لمدة 30 دقيقة):\n${getConfig().FRONTEND_URL}/reset-password?token=${token}\n\nإذا لم تطلب هذا، تجاهل الرسالة.`,
     });
   }
@@ -295,7 +295,7 @@ router.post("/resend-verification", authRateLimiter, async (req, res) => {
     await sendEmail({
       to: email,
       kind: "email-verification",
-      subject: "HiMe AI — تأكيد البريد الإلكتروني",
+      subject: "Hire me — تأكيد البريد الإلكتروني",
       body: `مرحباً ${user.name}،\n\nأكمل التسجيل بزيارة هذا الرابط:\n${getConfig().FRONTEND_URL}/verify-email?token=${token}\n\nالرابط صالح لمدة 24 ساعة.`,
     });
   }

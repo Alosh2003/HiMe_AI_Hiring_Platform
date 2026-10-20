@@ -1,4 +1,4 @@
-# HiMe AI — Known Issues & Fix Plan
+# Hire me — Known Issues & Fix Plan
 
 Generated after a full audit of the back-end, AI engine, and front-end.
 Everything marked **Verified** was reproduced against the running app or the

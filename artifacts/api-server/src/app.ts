@@ -71,7 +71,7 @@ app.get("/healthz", (_req, res) => {
 // Root index — this port is the API only; the UI is served separately.
 app.get("/", (_req, res) => {
   res.json({
-    name: "HiMe AI Hiring Platform API",
+    name: "Hire me Hiring Platform API",
     version: "1.0.0",
     docs: "/api/openapi.json",
     ui: config.FRONTEND_URL || "http://localhost:3000",

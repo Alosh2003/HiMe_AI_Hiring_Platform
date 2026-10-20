@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "HiMe AI"
+title = "Hire me"
 description = "An Arabic-first AI hiring platform frontend that helps job seekers discover better opportunities and helps companies find strong candidate matches, ready to connect to a Laravel REST API."
 version = "1.0.0"
 id = "artifacts/hime-ai"

@@ -193,7 +193,7 @@ router.post("/companies/:id/verify", authMiddleware, requireRole("admin"), valid
     body: "يمكنك الآن نشر الوظائف واستقبال طلبات التقديم.",
     link: "/company/jobs/new",
   }, {
-    subject: "HiMe AI — تم التحقق من شركتك",
+    subject: "Hire me — تم التحقق من شركتك",
     body: `مرحباً،\n\nتم اعتماد بيانات "${company.name}" من قبل إدارة المنصة. يمكنك الآن نشر الوظائف.\n\n${getConfig().FRONTEND_URL}/company/dashboard`,
   });
 
@@ -247,7 +247,7 @@ router.post("/companies/:id/reject", authMiddleware, requireRole("admin"), valid
     body: parsed.data.reason,
     link: "/company/profile",
   }, {
-    subject: "HiMe AI — نتيجة طلب التحقق",
+    subject: "Hire me — نتيجة طلب التحقق",
     body: `مرحباً،\n\nللأسف لم يتم اعتماد "${company.name}".\nالسبب: ${parsed.data.reason}\n\nيمكنك تعديل البيانات وإعادة الطلب:\n${getConfig().FRONTEND_URL}/company/profile`,
   });
 
@@ -290,7 +290,7 @@ router.post("/companies/:id/suspend", authMiddleware, requireRole("admin"), vali
     body: "تم إيقاف الشركة من قبل إدارة المنصة. تواصل مع الإدارة للمزيد.",
     link: "/company/profile",
   }, {
-    subject: "HiMe AI — إيقاف الشركة",
+    subject: "Hire me — إيقاف الشركة",
     body: `مرحباً،\n\nتم إيقاف "${company.name}" من قبل إدارة المنصة. تواصل مع الإدارة للمزيد.\n\n${getConfig().FRONTEND_URL}/company/profile`,
   });
 
@@ -411,7 +411,7 @@ router.post("/users/:id/password", authMiddleware, requireRole("admin"), validat
     title: "تمت إعادة تعيين كلمة المرور",
     body: "أعادت إدارة المنصة تعيين كلمة المرور. استخدم كلمة المرور الجديدة لتسجيل الدخول.",
   }, {
-    subject: "HiMe AI — إعادة تعيين كلمة المرور",
+    subject: "Hire me — إعادة تعيين كلمة المرور",
     body: `مرحباً ${user.name}،\n\nأعادت إدارة المنصة تعيين كلمة المرور لحسابك. يمكنك تسجيل الدخول بكلمة المرور الجديدة التي استلمتها من الإدارة.\n\nإذا لم تطلب هذا، فتواصل مع الإدارة فوراً.`,
   });
 

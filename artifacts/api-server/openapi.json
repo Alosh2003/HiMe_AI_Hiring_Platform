@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "HiMe AI Hiring Platform API",
+    "title": "Hire me Hiring Platform API",
     "version": "1.0.0",
-    "description": "REST API for HiMe AI, an Arabic (RTL) hiring platform connecting job seekers, companies and platform administrators. Every endpoint accepts and returns JSON (application/json) unless stated otherwise; file uploads use multipart/form-data and file downloads return the stored binary. Authenticated requests must send a Bearer JWT obtained from POST /api/auth/login or POST /api/auth/register in the Authorization header (Authorization: Bearer <token>). Endpoints marked as public require no token. All endpoints are additionally covered by a global rate limit (300 req/min per IP) and stricter limiters on the auth, AI and assessment endpoints, which answer 429 when exceeded."
+    "description": "REST API for Hire me, an Arabic (RTL) hiring platform connecting job seekers, companies and platform administrators. Every endpoint accepts and returns JSON (application/json) unless stated otherwise; file uploads use multipart/form-data and file downloads return the stored binary. Authenticated requests must send a Bearer JWT obtained from POST /api/auth/login or POST /api/auth/register in the Authorization header (Authorization: Bearer <token>). Endpoints marked as public require no token. All endpoints are additionally covered by a global rate limit (300 req/min per IP) and stricter limiters on the auth, AI and assessment endpoints, which answer 429 when exceeded."
   },
   "servers": [
     {

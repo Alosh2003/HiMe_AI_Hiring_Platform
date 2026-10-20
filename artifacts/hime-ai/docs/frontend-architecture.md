@@ -1,4 +1,4 @@
-# HiMe AI frontend architecture
+# Hire me frontend architecture
 
 ## Structure
 
