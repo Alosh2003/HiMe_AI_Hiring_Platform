@@ -302,7 +302,7 @@ export function AssessPage() {
             {/* Header + score */}
             <Card className="mx-auto max-w-2xl overflow-hidden">
               <div className="bg-sidebar p-6 text-center text-sidebar-foreground md:p-10">
-                <p className="text-xs uppercase tracking-[.2em] text-[#f2c66d]">نتيجة التقييم</p>
+                <p className="text-xs uppercase tracking-[.2em] text-brand-accent">نتيجة التقييم</p>
                 <h2 className="mt-2 text-xl font-bold md:text-2xl">{result.role}</h2>
                 <div className="mt-8 flex justify-center">
                   <ScoreRing score={result.overallScore} size="lg" />

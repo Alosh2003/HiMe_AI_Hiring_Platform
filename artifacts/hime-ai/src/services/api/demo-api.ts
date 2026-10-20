@@ -290,7 +290,7 @@ export async function uploadAvatar(file: File): Promise<string> {
   await wait();
   // Local fallback: a clearly-generic placeholder, never a fake portrait.
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#123e43"/><text x="32" y="40" font-size="22" text-anchor="middle" fill="#f2c66d" font-family="sans-serif">HI</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#1b4fd8"/><text x="32" y="40" font-size="22" text-anchor="middle" fill="#ffffff" font-family="sans-serif">HI</text></svg>',
   );
 }
 

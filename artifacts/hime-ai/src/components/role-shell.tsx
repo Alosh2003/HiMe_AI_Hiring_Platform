@@ -43,7 +43,7 @@ const roleContent = {
   admin: {
     account: 'حساب إدارة المنصة',
     name: 'إدارة المنصة',
-    greeting: 'مركز إدارة HiMe AI',
+    greeting: 'مركز إدارة Hire me',
     links: [
       ['/admin/dashboard', LayoutDashboard, 'نظرة عامة'],
       ['/admin/profile', ShieldCheck, 'ملفي وصلاحياتي'],
@@ -164,9 +164,9 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
         {!folded && (
           <div className="shrink-0 px-4 pb-6">
             <div className="rounded-2xl border border-white/10 bg-sidebar-accent p-4">
-              <div className="mb-3 flex items-center gap-2 text-xs text-sidebar-foreground/60"><span className="h-2 w-2 rounded-full bg-[#f2c66d]" />{content.account}</div>
+              <div className="mb-3 flex items-center gap-2 text-xs text-sidebar-foreground/60"><span className="h-2 w-2 rounded-full bg-brand-accent" />{content.account}</div>
               <div className="flex items-center gap-3">
-                <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]">{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} data-testid="img-sidebar-avatar" />}</div>
+                <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-accent text-sm font-bold text-brand-ink">{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} data-testid="img-sidebar-avatar" />}</div>
                 <div className="min-w-0"><p className="truncate text-sm font-bold">{displayName}</p><p className="mt-1 text-[11px] text-sidebar-foreground/50">{role === 'admin' ? 'مدير المنصة' : role === 'company' ? 'حساب موثق' : 'باحث عن فرصة'}</p></div>
               </div>
             </div>
@@ -174,7 +174,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
         )}
         {folded && (
           <div className="flex shrink-0 justify-center pb-4 pt-2">
-            <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f2c66d] text-sm font-bold text-[#123e43]" title={displayName}>{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
+            <div className="relative"><div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-accent text-sm font-bold text-brand-ink" title={displayName}>{avatar}</div>{userAvatar && <img src={userAvatar} alt="" className="absolute inset-0 h-10 w-10 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
           </div>
         )}
 
@@ -229,7 +229,7 @@ export function RoleShell({ role, children }: { role: PortalRole; children: Reac
               href={settingsHref}
               title="الملف الشخصي"
               aria-label="الملف الشخصي"
-              className="relative block rounded-full ring-2 ring-[#f2c66d]/55 transition-shadow hover:ring-[#f2c66d]"
+              className="relative block rounded-full ring-2 ring-brand-accent/55 transition-shadow hover:ring-brand-accent"
               data-testid="link-header-profile"
             >
               <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{avatar}</span>

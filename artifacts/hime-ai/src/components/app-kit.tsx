@@ -10,7 +10,7 @@ import type { Job, MatchResult } from '@/types';
 import { cn } from '@/lib/utils';
 
 export function Logo({ light = false }: { light?: boolean }) {
-  return <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight" data-testid="link-logo"><span className={cn('grid h-9 w-9 place-items-center rounded-xl', light ? 'bg-[#f2c66d] text-[#123e43]' : 'bg-primary text-primary-foreground')}><BrandMark className="h-[18px] w-[18px]" /></span><span className={cn('text-lg', light && 'text-sidebar-foreground')}>HiMe <span className={light ? 'text-[#f2c66d]' : 'text-accent'}>AI</span></span></Link>;
+  return <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight" data-testid="link-logo"><span className={cn('grid h-9 w-9 place-items-center rounded-xl', light ? 'bg-brand-accent text-brand-ink' : 'bg-primary text-primary-foreground')}><BrandMark className="h-[18px] w-[18px]" /></span><span className={cn('text-lg', light && 'text-sidebar-foreground')}>Hire <span className="italic">me</span></span></Link>;
 }
 export function LanguageSwitch() { const { lang, toggle, t } = useLanguage(); return <button onClick={toggle} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold hover:bg-muted" data-testid="button-language"><span className="text-primary">{lang === 'ar' ? 'ع' : 'EN'}</span><span>{t('language')}</span></button>; }
 export function PublicNav() {

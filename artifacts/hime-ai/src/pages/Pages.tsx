@@ -19,7 +19,7 @@ import {
   PageHeader, PublicNav, ScoreBreakdown, ScoreRing
 } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
-import { BrandPattern } from '@/components/brand-pattern';
+import { BrandMark, BrandPattern } from '@/components/brand-pattern';
 import type { ApplicationStatus, MatchResult } from '@/types';
 
 // ─── Public Footer ────────────────────────────────────────────────────────────
@@ -29,25 +29,25 @@ function PublicFooter() {
     <footer className="bg-sidebar px-4 py-12 text-sidebar-foreground md:px-8">
       <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
         <div>
-          <span className="text-lg font-bold">HiMe <span className="text-[#f2c66d]">AI</span></span>
+          <span className="text-lg font-bold">Hire <span className="italic">me</span></span>
           <p className="mt-4 max-w-xs text-sm leading-7 text-sidebar-foreground/60">مساحة أكثر وضوحاً للقرارات المهنية المهمة.</p>
         </div>
         <div>
-          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-[#f2c66d]">المنصة</p>
+          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-brand-accent">المنصة</p>
           <div className="space-y-3 text-sm text-sidebar-foreground/70">
             <Link href="/jobs" className="block hover:text-white" data-testid="link-footer-jobs">{t('navJobs')}</Link>
             <Link href="/about" className="block hover:text-white" data-testid="link-footer-about">{t('navAbout')}</Link>
           </div>
         </div>
         <div>
-          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-[#f2c66d]">للباحثين</p>
+          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-brand-accent">للباحثين</p>
           <div className="space-y-3 text-sm text-sidebar-foreground/70">
             <Link href="/register" className="block hover:text-white" data-testid="link-footer-seeker">{t('seeker')}</Link>
             <Link href="/register?role=seeker" className="block hover:text-white" data-testid="link-footer-cv">{t('cv')}</Link>
           </div>
         </div>
         <div>
-          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-[#f2c66d]">للشركات</p>
+          <p className="mb-4 text-xs font-bold uppercase tracking-widest text-brand-accent">للشركات</p>
           <div className="space-y-3 text-sm text-sidebar-foreground/70">
             <Link href="/register?role=company" className="block hover:text-white" data-testid="link-footer-company">{t('company')}</Link>
             <Link href="/register?role=company" className="block hover:text-white" data-testid="link-footer-post">أضف وظيفة</Link>
@@ -55,7 +55,7 @@ function PublicFooter() {
         </div>
       </div>
       <div className="mx-auto mt-12 max-w-7xl border-t border-sidebar-border pt-5 text-xs text-sidebar-foreground/50">
-        © 2025 HiMe AI · قرارك المهني يستحق معلومات أفضل
+        © 2025 Hire me · قرارك المهني يستحق معلومات أفضل
       </div>
     </footer>
   );
@@ -97,16 +97,16 @@ export function HomePage() {
               <Link
                 href="/assess"
                 data-testid="link-hero-assess"
-                className="group block rounded-xl focus-visible:ring-2 focus-visible:ring-[#f2c66d] focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                className="group block rounded-xl focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-4 focus-visible:ring-offset-background"
               >
-                <Card className="relative overflow-hidden border-primary/20 bg-card/90 p-2 shadow-2xl shadow-primary/10 transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-[#f2c66d]/45 group-hover:shadow-[0_30px_60px_-25px_rgba(242,198,109,0.5)]">
+                <Card className="relative overflow-hidden border-primary/20 bg-card/90 p-2 shadow-2xl shadow-primary/10 transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-brand-accent/45 group-hover:shadow-[0_30px_60px_-25px_rgba(81,131,255,0.5)]">
                   <div className="rounded-xl bg-sidebar p-6 text-sidebar-foreground md:p-8">
                     <div className="mb-8 flex items-center justify-between">
                       <div>
                         <p className="text-xs text-sidebar-foreground/60">نتيجة المطابقة</p>
                         <p className="mt-1 text-lg font-bold">مصمم تجربة مستخدم أول</p>
                       </div>
-                      <span className="rounded-full bg-[#f2c66d]/15 px-3 py-1.5 text-xs font-bold text-[#f2c66d] transition-colors duration-300 group-hover:bg-[#f2c66d]/25">مقترحة لك</span>
+                      <span className="rounded-full bg-brand-accent/15 px-3 py-1.5 text-xs font-bold text-brand-accent transition-colors duration-300 group-hover:bg-brand-accent/25">مقترحة لك</span>
                     </div>
                     <div className="flex items-center gap-6">
                       <ScoreRing score={92} size="lg" />
@@ -115,10 +115,10 @@ export function HomePage() {
                           <div key={label as string}>
                             <div className="mb-1 flex justify-between text-xs">
                               <span className="text-sidebar-foreground/70">{label}</span>
-                              <span className="font-bold text-[#f2c66d]">{score}%</span>
+                              <span className="font-bold text-brand-accent">{score}%</span>
                             </div>
                             <div className="h-1.5 rounded-full bg-white/10">
-                              <div className="h-full rounded-full bg-[#f2c66d] transition-all duration-300 group-hover:shadow-[0_0_10px_rgba(242,198,109,0.85)]" style={{ width: `${score}%` }} />
+                              <div className="h-full rounded-full bg-brand-accent transition-all duration-300 group-hover:shadow-[0_0_10px_rgba(81,131,255,0.85)]" style={{ width: `${score}%` }} />
                             </div>
                           </div>
                         ))}
@@ -126,7 +126,7 @@ export function HomePage() {
                     </div>
                     {/* Free-assessment CTA — the slot the sample explanation used to occupy. */}
                     <span
-                      className="mt-8 flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-br from-[#f2c66d] via-[#f2c66d] to-[#f2c66d]/70 text-sm font-bold text-[#17282b] shadow-[0_12px_28px_-12px_rgba(242,198,109,0.9)] transition-all duration-300 group-hover:shadow-[0_18px_40px_-12px_rgba(242,198,109,1)]"
+                      className="mt-8 flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-br from-brand-accent via-brand-accent to-brand-accent/70 text-sm font-bold text-brand-ink shadow-[0_12px_28px_-12px_rgba(81,131,255,0.9)] transition-all duration-300 group-hover:shadow-[0_18px_40px_-12px_rgba(81,131,255,1)]"
                       data-testid="cta-hero-assess"
                     >
                       <Sparkles className="h-4 w-4 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
@@ -170,7 +170,7 @@ export function HomePage() {
             <div className="mt-14 grid gap-5 md:grid-cols-12">
               <Card className="md:col-span-7 bg-sidebar text-sidebar-foreground">
                 <CardContent className="p-7 md:p-9">
-                  <Sparkles className="h-7 w-7 text-[#f2c66d]" />
+                  <BrandMark className="h-7 w-7 text-brand-accent" />
                   <h3 className="mt-12 text-2xl font-bold">مطابقة تشرح نفسها</h3>
                   <p className="mt-3 max-w-md text-sm leading-7 text-sidebar-foreground/70">لا نرمي رقماً مجرداً. ترى كيف تجمّعت النتيجة، ما الذي يطابقك، وما الذي يستحق التطوير.</p>
                 </CardContent>
@@ -192,7 +192,7 @@ export function HomePage() {
             <div>
               <p className="mb-3 text-xs font-bold uppercase tracking-[.2em] text-primary">لست رقماً</p>
               <h2 className="text-3xl font-bold tracking-tight md:text-4xl">وظيفة مناسبة تبدأ بفهم أفضل.</h2>
-              <p className="mt-5 leading-8 text-muted-foreground">نصمم HiMe AI للناس خلف الملفات الشخصية.</p>
+              <p className="mt-5 leading-8 text-muted-foreground">نصمم Hire me للناس خلف الملفات الشخصية.</p>
               <Link href="/jobs" className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-primary" data-testid="link-home-jobs">{t('navJobs')} <ArrowUpLeft className="h-4 w-4" /></Link>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -281,7 +281,7 @@ export function AboutPage() {
       <main>
         <section className="bg-sidebar px-4 py-24 text-sidebar-foreground md:px-8 md:py-32">
           <div className="mx-auto max-w-5xl">
-            <p className="mb-5 text-xs font-bold uppercase tracking-[.22em] text-[#f2c66d]">قصة HiMe AI</p>
+            <p className="mb-5 text-xs font-bold uppercase tracking-[.22em] text-brand-accent">قصة Hire me</p>
             <h1 className="max-w-3xl text-4xl font-bold leading-tight md:text-6xl">نؤمن أن أفضل قرار مهني يبدأ من رؤية الإنسان كاملاً.</h1>
             <p className="mt-7 max-w-2xl text-base leading-8 text-sidebar-foreground/65">التوظيف لا يحتاج مزيداً من الضجيج. يحتاج لغة مشتركة بين الطموح والاحتياج.</p>
           </div>
@@ -540,7 +540,7 @@ const statusColors: Record<ApplicationStatus, string> = {
   applied: 'bg-muted text-muted-foreground',
   reviewing: 'bg-accent/15 text-accent-foreground',
   shortlisted: 'bg-primary/10 text-primary',
-  interview: 'bg-[#f2c66d]/20 text-[#7a5f00]',
+  interview: 'bg-brand-accent/20 text-brand-ink',
   rejected: 'bg-destructive/10 text-destructive',
   accepted: 'bg-primary text-primary-foreground',
 };
@@ -1311,7 +1311,7 @@ export function CandidatesPage() {
       </div>
       <p className="mt-6 rounded-xl bg-accent/10 p-4 text-xs leading-6 text-muted-foreground">
         <CircleAlert className="me-2 inline h-4 w-4 text-accent" />
-        نتائج HiMe AI دعم لاتخاذ القرار وليست قرار توظيف نهائي.
+        نتائج Hire me دعم لاتخاذ القرار وليست قرار توظيف نهائي.
       </p>
     </RoleShell>
   );

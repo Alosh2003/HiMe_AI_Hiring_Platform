@@ -1013,7 +1013,7 @@ describe('header avatar session refresh', () => {
 // ─── Brand motif ─────────────────────────────────────────────────────────────
 
 describe('brand motif', () => {
-  it('renders the brand mark and star-lattice pattern on the landing page', async () => {
+  it('renders the brand mark and dot-arrow lattice pattern on the landing page', async () => {
     renderAt('/');
     expect((await screen.findAllByTestId('brand-pattern')).length).toBeGreaterThan(0); // hero backdrop
     expect(screen.getAllByTestId('brand-mark').length).toBeGreaterThan(0); // logo tile

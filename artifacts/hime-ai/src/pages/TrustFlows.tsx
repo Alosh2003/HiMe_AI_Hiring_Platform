@@ -25,21 +25,21 @@ function AuthFrame({ title, subtitle, side, children }: { title: string; subtitl
   return (
     <div className="grid min-h-[100dvh] lg:grid-cols-[.9fr_1.1fr]">
       <div className="relative isolate hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
-        <BrandPattern className="-z-10 text-[#f2c66d] opacity-[0.13]" />
+        <BrandPattern className="-z-10 text-brand-accent opacity-[0.13]" />
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight" data-testid="link-trust-auth-logo">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f2c66d] text-[#123e43]"><BrandMark className="h-[18px] w-[18px]" /></span>
-          <span className="text-lg">HiMe <span className="text-[#f2c66d]">AI</span></span>
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-accent text-brand-ink"><BrandMark className="h-[18px] w-[18px]" /></span>
+          <span className="text-lg">Hire <span className="italic">me</span></span>
         </Link>
         <div>
-          <p className="mb-5 text-xs uppercase tracking-[.2em] text-[#f2c66d]">HiMe AI</p>
+          <p className="mb-5 text-xs uppercase tracking-[.2em] text-brand-accent">Hire me</p>
           <h1 className="max-w-md text-4xl font-bold leading-tight">{side}</h1>
-          <div className="mt-8 flex gap-3 text-sm text-sidebar-foreground/60"><ShieldCheck className="h-5 w-5 text-[#f2c66d]" />قرارات مهنية أكثر وعياً</div>
+          <div className="mt-8 flex gap-3 text-sm text-sidebar-foreground/60"><ShieldCheck className="h-5 w-5 text-brand-accent" />قرارات مهنية أكثر وعياً</div>
         </div>
         <p className="text-xs text-sidebar-foreground/50">بياناتك محفوظة بأمان، ونستخدم الذكاء الاصطناعي لمساعدتك على اتخاذ قرار أوضح.</p>
       </div>
       <div className="flex flex-col p-5 md:p-10">
         <div className="mb-16 flex items-center justify-between lg:justify-end">
-          <Link href="/" className="lg:hidden" data-testid="link-trust-auth-mobile-logo"><span className="font-bold">HiMe <span className="text-accent">AI</span></span></Link>
+          <Link href="/" className="lg:hidden" data-testid="link-trust-auth-mobile-logo"><span className="font-bold">Hire <span className="italic">me</span></span></Link>
           <Link href="/jobs" className="text-xs font-semibold text-muted-foreground" data-testid="link-trust-auth-jobs">استكشف الوظائف <ArrowUpLeft className="inline h-3 w-3" /></Link>
         </div>
         <div className="mx-auto w-full max-w-md">
