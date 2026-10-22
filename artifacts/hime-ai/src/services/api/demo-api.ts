@@ -413,6 +413,42 @@ export async function generateSummary(): Promise<{ summary: string } & WithReass
   return { summary: 'ملخص مهني مُولّد من محتوى السيرة الذاتية (وضع العرض).', completion: demoProfile.completion };
 }
 
+/** What the reset rebuilt, per section, plus what the reassessment found. */
+export interface ResetProfileResult extends WithReassessment<{ completion: number }> {
+  summaryGenerated?: boolean;
+  applied: { skills: number; experiences: number; education: number; projects: number; certifications: number };
+}
+
+/**
+ * Resets every CV-derived part of the profile (headline, summary, skills,
+ * experience, education, projects, certifications) and rebuilds it from the
+ * stored CV. Name, photo and personal info are kept — server-side guarantee,
+ * the endpoint only touches CV-derived content. Callers re-fetch the profile
+ * afterwards; the rebuild lists live there.
+ */
+export async function resetProfileFromCv(): Promise<ResetProfileResult> {
+  if (hasApi()) {
+    return apiRequest<ResetProfileResult>('/candidates/profile/reset-from-cv', { method: 'POST' });
+  }
+  await wait(1200);
+  Object.assign(demoProfile, {
+    headline: '',
+    summary: 'ملخص مُعاد بناؤه من محتوى السيرة (وضع العرض).',
+    skills: [],
+    experiences: [],
+    education: [],
+    projects: [],
+    certifications: [],
+    completion: 24,
+  });
+  return {
+    completion: 24,
+    applied: { skills: 3, experiences: 1, education: 1, projects: 0, certifications: 0 },
+    summaryGenerated: true,
+    reassessment: { completion: 24, reassessedMatches: 2, changedMatches: 2 },
+  };
+}
+
 /**
  * Uploads the CV as multipart/form-data.
  *

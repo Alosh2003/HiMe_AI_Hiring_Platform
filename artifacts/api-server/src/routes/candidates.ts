@@ -1004,4 +1004,212 @@ router.post("/profile/summary-ai", authMiddleware, requireRole("seeker"), async 
   }
 });
 
+/**
+ * Rebuilds the professional profile from the seeker's STORED CV — the same
+ * source-of-truth pipeline as the upload path, run on an explicit ask so a
+ * stale CV can stop shaping a profile it no longer describes. Everything
+ * CV-derived (headline, summary, skills, experiences, education, projects,
+ * certifications) is reset; the account identity (name, email, photo) and
+ * the personal fields (location, phone, years, privacy/preferences) are
+ * never touched. Nothing is wiped unless the CV parses successfully — a
+ * failed parse leaves the profile exactly as it was.
+ */
+router.post("/profile/reset-from-cv", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  try {
+    const candidate = await db.query.candidatesTable.findFirst({
+      where: eq(candidatesTable.userId, req.user!.userId),
+    });
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate profile not found" });
+      return;
+    }
+    if (!candidate.cvUrl) {
+      res.status(400).json({ error: "ارفع سيرتك الذاتية أولاً — إعادة الضبط تُبنى من محتواها." });
+      return;
+    }
+
+    const fileName = path.basename(candidate.cvUrl);
+    const mime = MIME_BY_EXT[path.extname(fileName).toLowerCase()];
+    if (!mime) {
+      res.status(400).json({ error: "نوع ملف السيرة الحالي غير قابل للقراءة — ارفع الملف مجدداً." });
+      return;
+    }
+
+    let cvText = "";
+    try {
+      cvText = await parseDocument(await getFile(fileName), mime);
+    } catch {
+      // Missing/unreadable stored file — the 410 below says so honestly.
+    }
+    if (!cleanField(cvText)) {
+      res.status(410).json({ error: "تعذر قراءة نص السيرة المخزنة — ارفع الملف مجدداً." });
+      return;
+    }
+
+    let llmResult;
+    try {
+      llmResult = await parseCvText(cvText);
+    } catch (err) {
+      logger.error({ err }, "CV re-parse failed during profile reset");
+      // Fail before any delete: the profile stays exactly as it was.
+      res.status(502).json({ error: "تعذر تحليل سيرتك بالذكاء الاصطناعي الآن — لم يُبدَّل أي شيء. أعد المحاولة." });
+      return;
+    }
+
+    const skillNames = uniqueBy(llmResult.skills, (s) => s);
+    const expRows = uniqueBy(
+      llmResult.experiences.filter((e) => cleanField(e?.role) && cleanField(e?.company)),
+      (e) => `${e.role}|${e.company}`,
+    );
+    const eduRows = uniqueBy(
+      llmResult.education.filter((e) => cleanField(e?.degree)),
+      (e) => `${e.degree}|${e.institution ?? ""}`,
+    );
+    const projRows = uniqueBy(
+      llmResult.projects.filter((p) => cleanField(p?.name)),
+      (p) => p.name,
+    );
+    const certRows = uniqueBy(
+      llmResult.certifications.filter((c) => cleanField(c?.name)),
+      (c) => `${c.name}|${c.issuer ?? ""}`,
+    );
+    const applied = {
+      skills: skillNames.length,
+      experiences: expRows.length,
+      education: eduRows.length,
+      projects: projRows.length,
+      certifications: certRows.length,
+    };
+
+    // A reset follows the CV, not the document's luck: unlike the upload
+    // path (which keeps old rows when the CV yields none), the old rows
+    // MUST go even when this CV carries nothing — that is what "reset"
+    // means. Empty results simply leave the section empty.
+    await db.transaction(async (tx) => {
+      await tx.delete(candidateSkillsTable).where(eq(candidateSkillsTable.candidateId, candidate.id));
+      for (const skillName of skillNames) {
+        let skillRecord = await tx.query.skillsTable.findFirst({
+          where: eq(skillsTable.name, skillName.trim()),
+        });
+        if (!skillRecord) {
+          const inserted = await tx.insert(skillsTable).values({
+            name: skillName.trim(),
+            category: "professional" as const,
+          }).returning();
+          skillRecord = inserted[0];
+        }
+        await tx.insert(candidateSkillsTable).values({
+          candidateId: candidate.id,
+          skillId: skillRecord.id,
+          proficiency: 3,
+        });
+      }
+
+      await tx.delete(experiencesTable).where(eq(experiencesTable.candidateId, candidate.id));
+      for (const exp of expRows) {
+        const endDate = cleanField(exp.endDate);
+        await tx.insert(experiencesTable).values({
+          candidateId: candidate.id,
+          role: exp.role.trim(),
+          company: exp.company.trim(),
+          location: cleanField(exp.location),
+          description: cleanField(exp.description),
+          startDate: cleanField(exp.startDate),
+          endDate,
+          current: !endDate,
+        });
+      }
+
+      await tx.delete(educationTable).where(eq(educationTable.candidateId, candidate.id));
+      for (const edu of eduRows) {
+        await tx.insert(educationTable).values({
+          candidateId: candidate.id,
+          degree: edu.degree.trim(),
+          field: cleanField(edu.field),
+          institution: cleanField(edu.institution),
+          year: toYear(edu.year),
+        });
+      }
+
+      await tx.delete(projectsTable).where(eq(projectsTable.candidateId, candidate.id));
+      for (const project of projRows) {
+        await tx.insert(projectsTable).values({
+          candidateId: candidate.id,
+          name: project.name.trim(),
+          description: cleanField(project.description),
+          url: cleanField(project.url),
+        });
+      }
+
+      await tx.delete(certificationsTable).where(eq(certificationsTable.candidateId, candidate.id));
+      for (const cert of certRows) {
+        await tx.insert(certificationsTable).values({
+          candidateId: candidate.id,
+          name: cert.name.trim(),
+          issuer: cleanField(cert.issuer),
+          year: toYear(cert.year),
+        });
+      }
+
+      // Headline and summary are CV-derived content too — they reset with
+      // everything else instead of outliving the CV they described.
+      await tx.update(candidatesTable)
+        .set({
+          headline: cleanField(llmResult.headline) ?? "",
+          summary: cleanField(llmResult.summary) ?? "",
+          cvParsedData: {
+            headline: llmResult.headline,
+            summary: cleanField(llmResult.summary),
+            skills: llmResult.skills,
+            experiences: llmResult.experiences,
+            education: llmResult.education,
+            projects: llmResult.projects,
+            certifications: llmResult.certifications,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(candidatesTable.id, candidate.id));
+    });
+
+    // Fill a summary gap from the CV itself when the document carried none —
+    // same gap-filling policy as the upload. Best-effort: a failed summary
+    // must not undo the reset; the profile is simply honest about it.
+    let summary = cleanField(llmResult.summary) ?? "";
+    let summaryGenerated = false;
+    if (!summary) {
+      try {
+        const generated = await generateSummaryWithLLM({
+          cvText,
+          headline: llmResult.headline,
+          skills: llmResult.skills,
+          roles: llmResult.experiences.filter((e) => cleanField(e?.role)).map((e) => `${e.role} — ${e.company}`),
+        });
+        const cleaned = cleanField(generated);
+        if (cleaned) {
+          await db.update(candidatesTable)
+            .set({ summary: cleaned, updatedAt: new Date() })
+            .where(eq(candidatesTable.id, candidate.id));
+          summary = cleaned;
+          summaryGenerated = true;
+        }
+      } catch (err) {
+        logger.warn({ err }, "AI summary generation during the profile reset failed");
+      }
+    }
+
+    // The profile content changed wholesale — completion and every match
+    // score must follow, same as a CV upload.
+    const assessment = await reassessCandidate(candidate.id);
+    res.json({
+      completion: assessment.completion,
+      reassessment: { completion: assessment.completion, reassessedMatches: assessment.reassessedMatches, changedMatches: assessment.changedMatches },
+      ...(summaryGenerated ? { summaryGenerated: true } : {}),
+      applied,
+    });
+  } catch (error) {
+    logger.error({ error }, "Profile reset from CV failed");
+    res.status(500).json({ error: error instanceof Error ? error.message : "Profile reset failed" });
+  }
+});
+
 export default router;

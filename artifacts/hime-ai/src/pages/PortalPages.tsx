@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
+import { ArrowUpLeft, BriefcaseBusiness, Building2, CalendarDays, Camera, Check, CheckCircle2, ChevronLeft, CircleAlert, CircleDashed, Clock3, FileCheck2, FileText, Globe2, HeartHandshake, Mail, MapPin, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Target, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -341,6 +341,10 @@ export function CandidateProfilePage() {
   const [itemError, setItemError] = useState('');
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetNote, setResetNote] = useState('');
   if (loading || (!data && !draft)) return <RoleShell role="seeker"><LoadingState /></RoleShell>;
   // Name and email are account-level, so they start from the session and ride
   // along in the draft until saved back to the account row.
@@ -524,6 +528,41 @@ export function CandidateProfilePage() {
       setSummaryBusy(false);
     }
   };
+  /** Rebuilds the CV-derived profile from the stored CV. The server guarantees
+   * that name, photo and personal info are kept — only headline, summary,
+   * skills and the four sections are reset. */
+  const resetFromCv = async () => {
+    setResetBusy(true);
+    setResetError('');
+    setResetNote('');
+    try {
+      const result = await demoApi.resetProfileFromCv();
+      // Server state is now the truth (rebuilt rows + fresh completion) —
+      // refresh instead of hand-patching the draft.
+      const fresh = await demoApi.getProfile();
+      setDraft({ ...fresh, name: user?.name ?? fresh.name ?? '', email: user?.email ?? fresh.email ?? '' });
+      if (result.reassessment) setReassess(result.reassessment);
+      const parts = [
+        `المهارات ${result.applied.skills}`,
+        `الخبرات ${result.applied.experiences}`,
+        `التعليم ${result.applied.education}`,
+        `المشاريع ${result.applied.projects}`,
+        `الشهادات ${result.applied.certifications}`,
+      ];
+      setResetNote(`تم إعادة بناء الملف من سيرتك الذاتية${result.summaryGenerated ? ' — كُتب الملخص المهني آلياً' : ''} · ${parts.join(' · ')}. بقي اسمك وصورتك وبياناتك الشخصية كما هي.`);
+    } catch (err) {
+      // A failed reset must tell the truth and leave the draft untouched —
+      // the pipeline wipes nothing when parsing fails.
+      setResetError(
+        err instanceof demoApi.ApiError
+          ? err.detail || err.message
+          : 'تعذّر إعادة ضبط الملف — تحقّق من اتصالك ثم أعد المحاولة.',
+      );
+    } finally {
+      setResetBusy(false);
+      setResetConfirm(false);
+    }
+  };
   const onPhotoSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // re-picking the same file must fire again
@@ -601,7 +640,7 @@ export function CandidateProfilePage() {
       <Card><CardHeader><CardTitle className="text-base">الشهادات والاعتمادات</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{profile.certifications.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-border p-4" data-testid={`row-certification-${item.id}`}><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent-foreground"><ShieldCheck className="h-4 w-4" /></div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.issuer} · {item.year}</p></div><ItemActions kind="certification" id={item.id} busy={itemBusy} onEdit={() => startEdit('certification', item.id)} onDelete={() => removeSectionItem('certification', item.id)} /></div>)}<Button type="button" variant="outline" className="border-dashed" onClick={() => toggleSection('certification')} aria-expanded={section === 'certification'} data-testid="button-add-certification"><Plus className="h-4 w-4" />إضافة شهادة</Button>{section === 'certification' && <AddSectionForm title={SECTION_FORMS.certification.title} fields={SECTION_FORMS.certification.fields} testid="certification" busy={sectionBusy} error={sectionError} onSubmit={(values) => addSectionItem('certification', values)} onCancel={() => setSection('')} />}{editingCertification && <AddSectionForm title={SECTION_FORMS.certification.editTitle} fields={SECTION_FORMS.certification.fields} testid="certification-edit" busy={itemBusy} error={itemError} initialValues={{ name: editingCertification.name, issuer: editingCertification.issuer ?? '', year: String(editingCertification.year ?? '') }} onSubmit={(values) => editSectionItem('certification', editingCertification.id, values)} onCancel={() => setEditing(null)} />}</CardContent></Card>
     </div><div className="space-y-6">
       <Card className="bg-secondary/50"><CardHeader><CardTitle className="text-base">تفضيلات العمل</CardTitle></CardHeader><CardContent className="space-y-4"><label className="block text-xs font-semibold">المجالات المفضلة<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.industries[0] ?? ''} onChange={(event) => update('preferences', { ...profile.preferences, industries: [event.target.value] })}><option value="">— اختر —</option><option>تقنية المعلومات</option><option>التقنية المالية</option><option>التسويق</option><option>الاستشارات</option></select></label><label className="block text-xs font-semibold">نوع العقد<select className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={profile.preferences.contract} onChange={(event) => update('preferences', { ...profile.preferences, contract: event.target.value as CandidateProfile['preferences']['contract'] })}><option value="full-time">دوام كامل</option><option value="part-time">دوام جزئي</option><option value="contract">عقد مستقل</option><option value="internship">تدريب</option></select></label><label className="block text-xs font-semibold">الحد الأدنى للراتب المتوقع (ريال)<input type="number" min={0} value={profile.preferences.salaryMin ?? ''} placeholder="مثال: 12000" data-testid="input-salary-min" className="mt-2 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal" onChange={(event) => update('preferences', { ...profile.preferences, salaryMin: event.target.value === '' ? null : Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-xs"><span><span className="block font-bold">العمل عن بعد</span><span className="mt-1 block text-muted-foreground">أظهر فرص العمل المرنة</span></span><input type="checkbox" checked={profile.preferences.remote} onChange={(event) => update('preferences', { ...profile.preferences, remote: event.target.checked })} data-testid="toggle-remote" /></label></CardContent></Card>
-      <Card><CardHeader><CardTitle className="text-base">السيرة الذاتية</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{profile.cvStatus !== 'missing' ? 'السيرة المرفوعة' : 'لم تُرفع سيرة بعد'}</p><p className="mt-1 text-xs text-muted-foreground">{profile.cvStatus === 'analyzed' ? 'تم التحليل — راجع المعلومات المستخرجة' : 'ارفع سيرتك من صفحة السيرة الذاتية'}</p></div></div><Link href="/seeker/cv" className="mt-5 block rounded-lg border border-border px-3 py-2.5 text-center text-xs font-bold hover:bg-muted">مراجعة السيرة</Link></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">السيرة الذاتية</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{profile.cvStatus !== 'missing' ? 'السيرة المرفوعة' : 'لم تُرفع سيرة بعد'}</p><p className="mt-1 text-xs text-muted-foreground">{profile.cvStatus === 'analyzed' ? 'تم التحليل — راجع المعلومات المستخرجة' : 'ارفع سيرتك من صفحة السيرة الذاتية'}</p></div></div><Link href="/seeker/cv" className="mt-5 block rounded-lg border border-border px-3 py-2.5 text-center text-xs font-bold hover:bg-muted">مراجعة السيرة</Link><div className="mt-4 border-t border-border pt-4"><p className="text-xs font-bold">إعادة الضبط من السيرة</p><p className="mt-1 text-xs leading-5 text-muted-foreground">يمسح المهارات والخبرات والتعليم والمشاريع والشهادات والعنوان والملخص المهني، ثم يعيد بناءها من محتوى السيرة المخزنة. يبقى اسمك وصورتك ومعلوماتك الشخصية (الموقع، الهاتف، سنوات الخبرة) كما هي.</p>{resetNote && (<div role="status" data-testid="note-reset-cv" className="mt-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary"><span className="block leading-5">{resetNote}</span><button type="button" onClick={() => setResetNote('')} className="mt-1 text-[10px] font-bold underline opacity-80 hover:opacity-100">إخفاء</button></div>)}{resetError && (<div role="alert" data-testid="error-reset-cv" className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive"><span className="block leading-5">{resetError}</span><button type="button" onClick={() => setResetError('')} className="mt-1 text-[10px] font-bold underline opacity-80 hover:opacity-100">إخفاء</button></div>)}<Button type="button" variant="outline" onClick={() => (resetConfirm ? resetFromCv() : setResetConfirm(true))} disabled={resetBusy} className={`mt-3 w-full ${resetConfirm ? 'border-destructive/50 text-destructive hover:bg-destructive/10' : ''}`} data-testid="button-reset-from-cv"><RotateCcw className="me-2 h-4 w-4" />{resetBusy ? 'جارٍ إعادة البناء من السيرة… قد يستغرق وقتاً' : resetConfirm ? 'تأكيد إعادة الضبط' : 'إعادة ضبط الملف من السيرة'}</Button>{resetConfirm && !resetBusy && <button type="button" onClick={() => setResetConfirm(false)} className="mt-2 block w-full text-center text-[10px] font-bold text-muted-foreground underline" data-testid="button-cancel-reset">إلغاء</button>}</div></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">الظهور والخصوصية</CardTitle><CardTitle className="text-xs font-normal text-muted-foreground">تُحفظ مع «حفظ الملف».</CardTitle></CardHeader><CardContent className="space-y-3 text-xs"><label className="flex items-start gap-3"><input type="checkbox" checked={profile.visibleToCompanies !== false} onChange={(event) => update('visibleToCompanies', event.target.checked)} className="mt-0.5" data-testid="toggle-visible-companies" /><span><span className="font-bold">السماح للشركات برؤية ملفي</span><span className="mt-1 block leading-5 text-muted-foreground">عند تعطيله يختفي ملفك من قوائم المرشحين والتوصيات — طلبات تقدّمك تبقى ظاهرة.</span></span></label><label className="flex items-start gap-3"><input type="checkbox" checked={profile.jobAlerts !== false} onChange={(event) => update('jobAlerts', event.target.checked)} className="mt-0.5" data-testid="toggle-job-alerts" /><span><span className="font-bold">تنبيهات الفرص المطابقة</span><span className="mt-1 block leading-5 text-muted-foreground">أرسل لي إشعاراً عند نشر وظيفة يتجاوز تطابقها 80% مع ملفي.</span></span></label></CardContent></Card>
     </div></div>
   </RoleShell>;

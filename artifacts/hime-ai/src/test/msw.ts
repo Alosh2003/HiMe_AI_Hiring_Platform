@@ -263,6 +263,17 @@ export const handlers = [
     await delay(10);
     return HttpResponse.json({ summary: 'ملخص مهني أنشأه الذكاء الاصطناعي من محتوى السيرة المرفوعة.', completion: 88, reassessment: { completion: 88, reassessedMatches: 2, changedMatches: 1 } });
   }),
+  http.post('*/api/candidates/profile/reset-from-cv', async () => {
+    await delay(10);
+    // Mirrors the real response: what got rebuilt, whether the AI wrote the
+    // summary, and the reassessment that followed the wipe.
+    return HttpResponse.json({
+      completion: 46,
+      reassessment: { completion: 46, reassessedMatches: 1, changedMatches: 1 },
+      summaryGenerated: true,
+      applied: { skills: 4, experiences: 2, education: 1, projects: 1, certifications: 1 },
+    });
+  }),
   http.post('*/api/candidates/photo', async () => {
     await delay(10);
     return HttpResponse.json({ avatarUrl: '/api/avatars/test-avatar.png' }, { status: 201 });

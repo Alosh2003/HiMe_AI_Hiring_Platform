@@ -1191,6 +1191,65 @@ describe('profile editing', () => {
     expect(screen.getByTestId('input-الملخص المهني')).toHaveValue('');
     expect(screen.getByTestId('button-ai-summary')).toBeEnabled();
   });
+
+  it('resets the profile from the stored CV behind a two-step confirm, keeping the draft honest', async () => {
+    setRole('seeker');
+    let resetCalls = 0;
+    server.use(
+      http.post('*/api/candidates/profile/reset-from-cv', () => {
+        resetCalls += 1;
+        return HttpResponse.json({
+          completion: 46,
+          reassessment: { completion: 46, reassessedMatches: 1, changedMatches: 1 },
+          summaryGenerated: true,
+          applied: { skills: 4, experiences: 2, education: 1, projects: 1, certifications: 1 },
+        });
+      }),
+      http.get('*/api/candidates/profile', () =>
+        HttpResponse.json(resetCalls === 0
+          ? profileFixture
+          : { ...profileFixture, headline: 'مهندسة بيانات أول', summary: 'ملخص مُعاد بناؤه من محتوى السيرة.', completion: 46 })),
+    );
+    renderAt('/seeker/profile');
+
+    // The destructive action arms first — clicking cancel never calls the API.
+    fireEvent.click(await screen.findByTestId('button-reset-from-cv'));
+    expect(screen.getByTestId('button-reset-from-cv')).toHaveTextContent('تأكيد إعادة الضبط');
+    fireEvent.click(screen.getByTestId('button-cancel-reset'));
+    expect(screen.getByTestId('button-reset-from-cv')).toHaveTextContent('إعادة ضبط الملف من السيرة');
+    expect(resetCalls).toBe(0);
+
+    // Armed, then confirmed: the wipe happens on the second press.
+    fireEvent.click(screen.getByTestId('button-reset-from-cv'));
+    fireEvent.click(screen.getByTestId('button-reset-from-cv'));
+
+    // The draft follows the refreshed server profile (CV-derived headline,
+    // rebuilt whatever the model read).
+    expect(await screen.findByTestId('input-العنوان المهني')).toHaveValue('مهندسة بيانات أول');
+    const note = await screen.findByTestId('note-reset-cv');
+    expect(note).toHaveTextContent('تم إعادة بناء الملف من سيرتك الذاتية');
+    expect(note).toHaveTextContent('كُتب الملخص المهني آلياً');
+    expect(note).toHaveTextContent('بقي اسمك وصورتك وبياناتك الشخصية كما هي');
+    await screen.findByTestId('reassess-profile');
+  });
+
+  it('shows an inline error and leaves the profile untouched when the reset fails', async () => {
+    setRole('seeker');
+    server.use(
+      http.post('*/api/candidates/profile/reset-from-cv', () =>
+        HttpResponse.json({ error: 'تعذر تحليل سيرتك بالذكاء الاصطناعي الآن — لم يُبدَّل أي شيء. أعد المحاولة.' }, { status: 502 })),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByTestId('button-reset-from-cv'));
+    fireEvent.click(screen.getByTestId('button-reset-from-cv'));
+
+    const error = await screen.findByTestId('error-reset-cv');
+    expect(error).toHaveTextContent('لم يُبدَّل أي شيء');
+    // The draft was never touched — the server wipes nothing on failure.
+    expect(screen.getByTestId('input-العنوان المهني')).toHaveValue('مصمم منتجات');
+    expect(screen.getByTestId('button-reset-from-cv')).toBeEnabled();
+  });
 });
 
 describe('CV upload', () => {
