@@ -51,6 +51,16 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    // The API lives on its own origin served through VITE_API_BASE_URL for
+    // fetches, but asset paths the API returns (avatars, files) are relative
+    // (/api/avatars/…) — without this proxy the dev server answers them with
+    // the SPA's index.html and every <img> using one shows a broken image.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_BASE_URL || 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
     fs: {
       strict: true,
     },

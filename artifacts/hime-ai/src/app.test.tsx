@@ -148,6 +148,29 @@ describe('public nav session header', () => {
     expect(screen.getByTestId('link-login')).toBeInTheDocument();
     expect(screen.queryByTestId('link-nav-account')).toBeNull();
   });
+
+  it('loads the chip photo through the API base and falls back to initials when it is gone', async () => {
+    localStorage.setItem('hime_ai_user', JSON.stringify({
+      id: 'f14e27ff-7e71-40af-8335-8b28c44852c7',
+      email: 'seeker@hime.ai',
+      name: 'Test User',
+      role: 'seeker',
+      avatarUrl: '/api/avatars/gone.jpg',
+    }));
+    renderAt('/jobs');
+
+    // The stored path is API-relative — a bare src would resolve against the
+    // dev server and load the SPA fallback instead of the photo.
+    const img = await screen.findByTestId('img-nav-avatar');
+    expect(img).toHaveAttribute('src', 'http://localhost:5000/api/avatars/gone.jpg');
+
+    // A deleted/stale file must not render a broken icon: the image hides and
+    // the initials that live underneath it show through.
+    fireEvent.error(img);
+    expect(img).toHaveStyle({ display: 'none' });
+    expect(screen.getByTestId('link-nav-account')).toHaveTextContent('Te');
+    expect(screen.getByTestId('link-nav-account')).toHaveTextContent('Test User');
+  });
 });
 
 // ─── Sidebar shell ──────────────────────────────────────────────────────────

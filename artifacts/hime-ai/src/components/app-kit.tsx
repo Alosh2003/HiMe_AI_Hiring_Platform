@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useLanguage } from '@/i18n';
 import { useAuth } from '@/contexts/auth-context';
+import * as demoApi from '@/services/api/demo-api';
 import { BrandMark } from '@/components/brand-pattern';
 import { ThemeToggle } from '@/components/theme';
 import type { Job, MatchResult } from '@/types';
@@ -21,17 +22,23 @@ export function PublicNav() {
   // A signed-in visitor gets their role dashboard and an explicit sign-out
   // instead of the marketing sign-in/register CTAs.
   const accountHref = user ? `/${user.role}/dashboard` : '/login';
+  // The stored avatarUrl is an API-relative path (/api/avatars/…) — the dev
+  // server has no /api proxy, so a bare src loads the SPA HTML fallback and
+  // shows a broken image. fileSrc prefixes it with the API base, and the
+  // initials stay underneath (same pattern as the portal shell) so a stale
+  // or deleted photo can never render a broken icon — it just hides.
   const accountChip = user ? (
     <Link href={accountHref} className="inline-flex items-center gap-2 rounded-full border border-border py-1 ps-1 pe-3 transition-colors hover:bg-muted" data-testid="link-nav-account">
-      {user.avatarUrl
-        ? <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
-        : <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{user.name.slice(0, 2)}</span>}
+      <span className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+        {user.name.slice(0, 2)}
+        {user.avatarUrl && <img src={demoApi.fileSrc(user.avatarUrl) ?? user.avatarUrl} alt="" className="absolute inset-0 h-8 w-8 rounded-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} data-testid="img-nav-avatar" />}
+      </span>
       <span className="max-w-36 truncate text-sm font-semibold">{user.name}</span>
     </Link>
   ) : null;
   const signOut = () => { setOpen(false); logout(); };
   const logoutButton = user ? (
-    <button type="button" onClick={signOut} className="inline-flex items-center gap-1.5 px-2 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-destructive" data-testid="button-nav-logout"><LogOut className="h-4 w-4" />{t('logout')}</button>
+    <button type="button" onClick={signOut} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" data-testid="button-nav-logout"><LogOut className="h-4 w-4" />{t('logout')}</button>
   ) : null;
   return <header className="sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-md"><div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 md:px-8"><Logo /><nav className="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex"><Link href="/jobs" className="hover:text-foreground" data-testid="link-nav-jobs">{t('navJobs')}</Link><Link href="/about" className="hover:text-foreground" data-testid="link-nav-about">{t('navAbout')}</Link><Link href="/assess" className="hover:text-foreground" data-testid="link-nav-assess">قيّم سيرتك</Link></nav><div className="hidden items-center gap-3 md:flex"><ThemeToggle /><LanguageSwitch />{isAuthenticated && user ? (<>{accountChip}{logoutButton}</>) : (<><Link href="/login" className="px-3 py-2 text-sm font-semibold" data-testid="link-login">{t('signIn')}</Link><Link href="/register" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:opacity-90" data-testid="link-register">{t('start')} <ArrowUpLeft className="h-4 w-4" /></Link></>)}</div><button className="rounded-lg p-2 md:hidden" onClick={() => setOpen(!open)} aria-label="menu" data-testid="button-mobile-menu">{open ? <X /> : <Menu />}</button></div>{open && <div className="border-t border-border bg-card px-4 py-4 md:hidden"><div className="flex flex-col gap-4 text-sm"><Link href="/jobs" onClick={() => setOpen(false)} data-testid="link-mobile-jobs">{t('navJobs')}</Link><Link href="/about" onClick={() => setOpen(false)} data-testid="link-mobile-about">{t('navAbout')}</Link><div className="flex items-center justify-between pt-2"><div className="flex items-center gap-2"><ThemeToggle /><LanguageSwitch /></div>{isAuthenticated && user ? (<Link href={accountHref} className="max-w-40 truncate rounded-lg bg-primary px-4 py-2 text-primary-foreground" onClick={() => setOpen(false)} data-testid="link-mobile-account">{user.name}</Link>) : (<Link href="/register" className="rounded-lg bg-primary px-4 py-2 text-primary-foreground" onClick={() => setOpen(false)} data-testid="link-mobile-register">{t('start')}</Link>)}</div>{isAuthenticated && user && <button type="button" onClick={signOut} className="flex items-center gap-2 text-start text-xs font-bold text-muted-foreground" data-testid="button-mobile-logout"><LogOut className="h-4 w-4" />{t('logout')}</button>}</div></div>}</header>;
 }
