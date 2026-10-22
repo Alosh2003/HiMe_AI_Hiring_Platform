@@ -366,6 +366,36 @@ ${input.cvText.slice(0, 12_000)}`;
   return summary.slice(0, 2000);
 }
 
+/**
+ * Derives a short professional headline (the profile's role line) straight
+ * from the CV content — used when the CV parse produced no headline, so the
+ * profile never ships an empty job title when the content to name one is
+ * right there in the document.
+ */
+export async function deriveHeadlineWithLLM(input: {
+  cvText: string;
+  skills?: string[];
+  roles?: string[];
+}): Promise<string> {
+  const systemPrompt = `You are a recruiter writing a candidate's profile headline. From the CV content provided, produce ONE short professional job title (2-5 words).
+Rules:
+- Write the title in the SAME language the CV is written in (Arabic CV → Arabic title, English CV → English title).
+- It must name the role, not the company: "Data Analyst", "مهندس برمجيات", "Senior UX Designer".
+- ONLY roles, skills and education actually present in the CV. Never invent seniority, specialities or credentials.
+- Plain text only — no quotes, no bullet, no JSON, no explanation.`;
+
+  const userPrompt = `Known skills: ${input.skills?.slice(0, 20).join(", ") || "-"}
+Recent roles: ${input.roles?.slice(0, 10).join(" | ") || "-"}
+
+CV content:
+${input.cvText.slice(0, 12_000)}`;
+
+  const result = await callLLM(systemPrompt, userPrompt, 120);
+  const headline = result.content.trim().replace(/^["'\s]+|["'\s]+$/g, "").split("\n")[0].trim();
+  if (!headline) throw new Error("LLM returned an empty headline");
+  return headline.slice(0, 120);
+}
+
 // ─── CV Assessment (public, role-scoped) ────────────────────────────────────
 
 export interface CvAssessment {

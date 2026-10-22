@@ -9,7 +9,7 @@ import { authMiddleware, requireRole, type AuthRequest } from "../middleware/aut
 import { validateUuidParam } from "../middleware/validate-params";
 import { logger } from "../lib/logger";
 import { parseCvText } from "../ai/cv-parser";
-import { generateSummaryWithLLM } from "../ai/llm";
+import { generateSummaryWithLLM, deriveHeadlineWithLLM } from "../ai/llm";
 import { reassessCandidate } from "../ai/match-snapshot";
 import { saveFile, deleteFile, getFile } from "../services/file-storage";
 import { parseDocument } from "../services/document-parser";
@@ -684,6 +684,32 @@ router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"),
       if (cvText) {
         try {
           const llmResult = await parseCvText(cvText);
+
+          // When the parse left the role line empty, the AI derives one from
+          // the document content itself — the profile must never show an
+          // empty headline when the CV names the work. Best-effort: a failed
+          // derivation keeps the previous behaviour (existing headline kept,
+          // or empty on a brand-new profile) and logs the reason.
+          let aiHeadline = cleanField(llmResult.headline);
+          if (!aiHeadline) {
+            try {
+              aiHeadline = cleanField(
+                await deriveHeadlineWithLLM({
+                  cvText,
+                  skills: llmResult.skills,
+                  roles: llmResult.experiences
+                    .filter((e) => cleanField(e?.role))
+                    .map((e) => `${e.role} — ${e.company}`),
+                }),
+              );
+            } catch (err) {
+              logger.warn({ err }, "AI headline derivation from the CV failed");
+            }
+          }
+          if (aiHeadline) {
+            llmResult.headline = aiHeadline;
+          }
+
           parsedData = {
             headline: llmResult.headline,
             summary: llmResult.summary,
@@ -1054,6 +1080,27 @@ router.post("/profile/reset-from-cv", authMiddleware, requireRole("seeker"), asy
       // Fail before any delete: the profile stays exactly as it was.
       res.status(502).json({ error: "تعذر تحليل سيرتك بالذكاء الاصطناعي الآن — لم يُبدَّل أي شيء. أعد المحاولة." });
       return;
+    }
+
+    // Same headline policy as the upload: when the CV carries no role line,
+    // the AI derives one from its content. On a derivation failure the old
+    // wording stays — never wipe a headline we could not replace.
+    if (!cleanField(llmResult.headline)) {
+      try {
+        const derived = cleanField(
+          await deriveHeadlineWithLLM({
+            cvText,
+            skills: llmResult.skills,
+            roles: llmResult.experiences.filter((e) => cleanField(e?.role)).map((e) => `${e.role} — ${e.company}`),
+          }),
+        );
+        if (derived) llmResult.headline = derived;
+      } catch (err) {
+        logger.warn({ err }, "AI headline derivation during the profile reset failed");
+      }
+    }
+    if (!cleanField(llmResult.headline)) {
+      llmResult.headline = candidate.headline ?? "";
     }
 
     const skillNames = uniqueBy(llmResult.skills, (s) => s);

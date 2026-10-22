@@ -1250,6 +1250,52 @@ describe('profile editing', () => {
     expect(screen.getByTestId('input-العنوان المهني')).toHaveValue('مصمم منتجات');
     expect(screen.getByTestId('button-reset-from-cv')).toBeEnabled();
   });
+
+  it('persists a skill change immediately, reassesses, and skips the save button', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.patch('*/api/candidates/profile', async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({
+          ...profileFixture,
+          reassessment: { completion: 90, reassessedMatches: 3, changedMatches: 2 },
+        });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.change(await screen.findByTestId('input-new-candidate-skill'), { target: { value: 'SQL' } });
+    fireEvent.click(screen.getByTestId('button-add-candidate-skill'));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ skills: [{ name: 'Figma' }, { name: 'SQL' }] });
+    // The newly assessed completion lands without touching حفظ الملف.
+    const note = await screen.findByTestId('reassess-profile');
+    expect(note).toHaveTextContent('نسبة الاكتمال الآن 90%');
+    expect(screen.queryByTestId('error-candidate-skills')).toBeNull();
+  });
+
+  it('removing a skill also reassesses, and a failed persistence shows an inline error', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.patch('*/api/candidates/profile', async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ error: 'تعذر حفظ المهارات' }, { status: 502 });
+      }),
+    );
+    renderAt('/seeker/profile');
+
+    fireEvent.click(await screen.findByLabelText('إزالة Figma'));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ skills: [] });
+    // The chip stays so the seeker does not lose the skill while retrying —
+    // the optimistic removal is undone when the save fails.
+    expect(await screen.findByLabelText('إزالة Figma')).toBeInTheDocument();
+    expect(await screen.findByTestId('error-candidate-skills')).toBeInTheDocument();
+  });
 });
 
 describe('CV upload', () => {
