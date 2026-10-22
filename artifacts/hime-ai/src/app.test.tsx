@@ -118,6 +118,38 @@ describe('language direction', () => {
   });
 });
 
+// ─── Public nav session header ─────────────────────────────────────────────
+
+describe('public nav session header', () => {
+  it('swaps the sign-in CTAs for the account chip when signed in, and signs out in place', async () => {
+    setRole('seeker');
+    renderAt('/jobs');
+
+    const chip = await screen.findByTestId('link-nav-account');
+    expect(chip).toHaveTextContent('Test User');
+    expect(chip).toHaveAttribute('href', '/seeker/dashboard');
+    expect(screen.queryByTestId('link-login')).toBeNull();
+    expect(screen.queryByTestId('link-register')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('button-nav-logout'));
+
+    // The header flips back to the visitor CTAs without leaving the page.
+    expect(await screen.findByTestId('link-login')).toBeInTheDocument();
+    expect(screen.getByTestId('link-register')).toBeInTheDocument();
+    expect(window.localStorage.getItem('hime_ai_user')).toBeNull();
+  });
+
+  it('keeps the sign-in and register CTAs for signed-out visitors', async () => {
+    localStorage.removeItem('hime_ai_user');
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/jobs');
+
+    expect(await screen.findByTestId('link-register')).toBeInTheDocument();
+    expect(screen.getByTestId('link-login')).toBeInTheDocument();
+    expect(screen.queryByTestId('link-nav-account')).toBeNull();
+  });
+});
+
 // ─── Sidebar shell ──────────────────────────────────────────────────────────
 
 describe('sidebar shell', () => {
