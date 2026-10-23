@@ -64,6 +64,7 @@ const candidate = {
 // Re-exported for per-test handler overrides (second job fixtures, etc.).
 export const jobFixture = job;
 export const companyFixture = company;
+export const candidateFixture = candidate;
 
 const application = {
   id: TEST_IDS.application1,
@@ -283,6 +284,15 @@ export const handlers = [
     return HttpResponse.json({ avatarUrl: '/api/avatars/test-avatar.png' }, { status: 201 });
   }),
   http.delete('*/api/candidates/photo', async () => {
+    await delay(10);
+    return new HttpResponse(null, { status: 204 });
+  }),
+  // Profile cover photo — mirrors the real routes (201 with the URL / 204).
+  http.post('*/api/candidates/cover', async () => {
+    await delay(10);
+    return HttpResponse.json({ coverUrl: '/api/avatars/test-cover.png' }, { status: 201 });
+  }),
+  http.delete('*/api/candidates/cover', async () => {
     await delay(10);
     return new HttpResponse(null, { status: 204 });
   }),

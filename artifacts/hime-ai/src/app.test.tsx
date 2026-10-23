@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, cleanup, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import App from './App';
-import { server, TEST_IDS, jobFixture } from '@/test/msw';
+import { server, TEST_IDS, jobFixture, candidateFixture } from '@/test/msw';
 import { assessRedirectTarget } from '@/lib/routes';
 
 // A second job for the ranking/reorder tests (cloned from the handler's fixture).
@@ -1083,6 +1083,63 @@ describe('profile sections', () => {
       'src',
       'http://localhost:5000/api/avatars/test-avatar.png',
     );
+  });
+});
+
+// ─── Profile cover photo ────────────────────────────────────────────────────
+
+describe('profile cover photo', () => {
+  it('uploads through the real endpoint, shows the server URL, and removes it', async () => {
+    setRole('seeker');
+    renderAt('/seeker/profile');
+
+    // No cover yet → the brand-gradient placeholder shows.
+    expect(await screen.findByTestId('box-cover-placeholder')).toBeInTheDocument();
+    const input = screen.getByTestId('input-profile-cover');
+
+    // An unsupported file is refused before any upload happens.
+    fireEvent.change(input, { target: { files: [new File(['x'], 'cover.gif', { type: 'image/gif' })] } });
+    expect(await screen.findByTestId('error-profile-cover')).toHaveTextContent('الصيغ المدعومة');
+    expect(screen.queryByTestId('img-profile-cover')).toBeNull();
+
+    // A valid PNG is posted immediately — the banner swaps to the returned URL.
+    fireEvent.change(input, { target: { files: [new File(['x'], 'cover.png', { type: 'image/png' })] } });
+    const img = await screen.findByTestId('img-profile-cover', {}, { timeout: 3000 });
+    await waitFor(
+      () => expect(img).toHaveAttribute('src', 'http://localhost:5000/api/avatars/test-cover.png'),
+      { timeout: 3000 },
+    );
+    expect(screen.queryByTestId('box-cover-placeholder')).toBeNull();
+    expect(screen.queryByTestId('error-profile-cover')).toBeNull();
+
+    // Removing it clears the banner back to the placeholder (DELETE 204).
+    fireEvent.click(screen.getByTestId('button-remove-cover'));
+    await screen.findByTestId('box-cover-placeholder', {}, { timeout: 3000 });
+    expect(screen.queryByTestId('img-profile-cover')).toBeNull();
+  });
+
+  it('renders a stored cover from the profile load and shows an inline error when the upload fails', async () => {
+    setRole('seeker');
+    server.use(
+      http.get('*/api/candidates/profile', async () =>
+        HttpResponse.json({ ...candidateFixture, coverUrl: '/api/avatars/stored-cover.jpg' })),
+      http.post('*/api/candidates/cover', async () =>
+        new HttpResponse(JSON.stringify({ error: 'الغلاف لم يُحفظ — حاول مجدداً.' }), { status: 500 })),
+    );
+    renderAt('/seeker/profile');
+
+    // The stored cover (prefixed with the API base) renders on load.
+    await waitFor(
+      () => expect(screen.getByTestId('img-profile-cover'))
+        .toHaveAttribute('src', 'http://localhost:5000/api/avatars/stored-cover.jpg'),
+      { timeout: 3000 },
+    );
+
+    // A failed upload must explain itself inline — the previous cover stays.
+    const input = await screen.findByTestId('input-profile-cover');
+    fireEvent.change(input, { target: { files: [new File(['x'], 'cover.png', { type: 'image/png' })] } });
+    expect(await screen.findByTestId('error-profile-cover')).toHaveTextContent('الغلاف لم يُحفظ');
+    expect(screen.getByTestId('img-profile-cover')).toHaveAttribute('src', 'http://localhost:5000/api/avatars/stored-cover.jpg');
   });
 });
 

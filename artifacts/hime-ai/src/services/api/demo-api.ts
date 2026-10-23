@@ -247,6 +247,7 @@ function normalizeProfile(raw: ApiProfile): CandidateProfile {
     location: raw.location ?? '',
     phone: raw.phone ?? '',
     avatarUrl: raw.avatarUrl ?? null,
+    coverUrl: raw.coverUrl ?? null,
     yearsExperience: raw.yearsExperience ?? null,
     // Payloads from before the privacy/alerts columns default them open.
     visibleToCompanies: raw.visibleToCompanies ?? true,
@@ -335,6 +336,38 @@ export async function removeAvatar(): Promise<void> {
   }
   await wait();
   demoProfile.avatarUrl = null;
+}
+
+// ─── Profile cover photo ──────────────────────────────────────────────────
+
+/**
+ * The cover is stored on the candidate row and served publicly through the
+ * avatars route. Same size/type rules as the avatar; the response's
+ * coverUrl feeds straight into the profile state.
+ */
+export async function uploadCover(file: File): Promise<string> {
+  if (!AVATAR_TYPES.includes(file.type)) throw new Error('الصيغ المدعومة: JPG أو PNG أو WebP.');
+  if (file.size > AVATAR_MAX_BYTES) throw new Error('حجم الصورة أكبر من 5 ميغابايت.');
+  if (hasApi()) {
+    const form = new FormData();
+    form.append('file', file);
+    const data = await apiRequest<{ coverUrl: string }>('/candidates/cover', { method: 'POST', body: form });
+    return data.coverUrl;
+  }
+  await wait();
+  // Demo mode has no file storage: a locally-generated gradient stand-in.
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1b4fd8"/><stop offset="1" stop-color="#3f6fe0"/></linearGradient></defs><rect width="640" height="160" fill="url(#g)"/></svg>',
+  );
+}
+
+export async function removeCover(): Promise<void> {
+  if (hasApi()) {
+    await apiRequest<void>('/candidates/cover', { method: 'DELETE' });
+    return;
+  }
+  await wait();
+  demoProfile.coverUrl = null;
 }
 
 // ─── Profile sections (experience / education / projects / certifications) ──

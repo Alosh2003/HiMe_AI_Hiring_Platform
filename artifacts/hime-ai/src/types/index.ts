@@ -17,6 +17,8 @@ export interface CandidateProfile {
   location: string;
   phone: string;
   avatarUrl?: string | null;
+  /** Profile-page cover photo (lives on the candidate row, served publicly). */
+  coverUrl?: string | null;
   /** Account-level fields the profile page edits (they live on the users row). */
   name?: string;
   email?: string;

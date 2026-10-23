@@ -335,6 +335,8 @@ export function CandidateProfilePage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverError, setCoverError] = useState('');
   const [reassess, setReassess] = useState<demoApi.Reassessment | null>(null);
   const [editing, setEditing] = useState<{ kind: SectionKind; id: string } | null>(null);
   const [itemBusy, setItemBusy] = useState(false);
@@ -636,7 +638,37 @@ export function CandidateProfilePage() {
       setPhotoBusy(false);
     }
   };
+  // Profile cover photo: saved server-side immediately (like the avatar),
+  // never part of the حفظ transaction, failures surface inline.
+  const onCoverSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setCoverError('');
+    setCoverBusy(true);
+    try {
+      const coverUrl = await demoApi.uploadCover(file);
+      setDraft({ ...profile, coverUrl });
+    } catch (err) {
+      setCoverError(err instanceof Error ? err.message : 'تعذر رفع صورة الغلاف — حاول مرة أخرى.');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+  const removeCoverPhoto = async () => {
+    setCoverError('');
+    setCoverBusy(true);
+    try {
+      await demoApi.removeCover();
+      setDraft({ ...profile, coverUrl: null });
+    } catch (err) {
+      setCoverError(err instanceof Error ? err.message : 'تعذر حذف صورة الغلاف — حاول مرة أخرى.');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
   const avatarSrc = photoPreview ?? demoApi.fileSrc(profile.avatarUrl);
+  const coverSrc = demoApi.fileSrc(profile.coverUrl);
   const editingExperience = editing?.kind === 'experience' ? profile.experiences.find((item) => item.id === editing.id) : undefined;
   const editingEducation = editing?.kind === 'education' ? profile.education.find((item) => item.id === editing.id) : undefined;
   const editingProject = editing?.kind === 'project' ? profile.projects.find((item) => item.id === editing.id) : undefined;
@@ -656,7 +688,33 @@ export function CandidateProfilePage() {
       </div>
     )}
     <WorkflowGuide role="seeker" current="profile" />
-    <div className="mb-6 flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 md:flex-row md:items-center md:justify-between md:p-6"><div className="flex items-center gap-4"><div className="relative"><div data-testid="box-profile-avatar" className="h-24 w-24 overflow-hidden rounded-3xl">{avatarSrc ? <img src={avatarSrc} alt={user?.name ?? ''} className="h-24 w-24 object-cover" data-testid="img-profile-avatar" /> : <div className="grid h-24 w-24 place-items-center bg-primary text-3xl font-bold text-primary-foreground">{initials(user?.name)}</div>}</div><label title="تغيير صورة الملف" className="absolute -bottom-1.5 -end-1.5 grid h-9 w-9 cursor-pointer place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:bg-muted" data-testid="label-upload-photo"><Camera className="h-4 w-4" /><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelected} disabled={photoBusy} data-testid="input-profile-photo" aria-label="رفع صورة الملف الشخصي" /></label>{profile.avatarUrl && !photoBusy && <button type="button" onClick={removePhoto} aria-label="إزالة الصورة" title="إزالة الصورة" className="absolute -top-1.5 -end-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground shadow-sm hover:text-destructive" data-testid="button-remove-photo">×</button>}{photoBusy && <span className="absolute inset-0 grid place-items-center rounded-3xl bg-background/60"><Clock3 className="h-7 w-7 animate-spin text-primary" /></span>}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · {profile.visibleToCompanies === false ? 'ملفك مخفي عن الشركات' : 'متاح لفرص جديدة'}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="lg" /><div><p className="text-sm text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">{profile.completion >= 100 ? 'ملفك مكتمل' : 'أضف مشروعاً لرفع النتيجة'}</p></div></div></div>
+    <div className="mb-6 overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="relative h-36 md:h-44" data-testid="box-profile-cover">
+        {coverSrc
+          ? <img src={coverSrc} alt="" className="absolute inset-0 h-full w-full object-cover" data-testid="img-profile-cover" />
+          : <div className="absolute inset-0 bg-gradient-to-l from-primary/15 via-secondary to-accent/15" data-testid="box-cover-placeholder" />}
+        <label
+          title={profile.coverUrl ? 'تغيير صورة الغلاف' : 'إضافة صورة غلاف'}
+          className={`absolute bottom-3 end-3 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-bold text-primary shadow-sm backdrop-blur-sm transition-colors hover:bg-muted ${coverBusy ? 'hidden' : ''}`}
+          data-testid="label-upload-cover"
+        >
+          <Camera className="h-4 w-4" />{profile.coverUrl ? 'تغيير الغلاف' : 'إضافة غلاف'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onCoverSelected} disabled={coverBusy} data-testid="input-profile-cover" aria-label="رفع صورة الغلاف" />
+        </label>
+        {profile.coverUrl && !coverBusy && (
+          <button type="button" onClick={removeCoverPhoto} aria-label="إزالة صورة الغلاف" title="إزالة صورة الغلاف" className="absolute end-3 top-3 grid h-7 w-7 place-items-center rounded-full border border-border bg-card/90 text-xs font-bold text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-destructive" data-testid="button-remove-cover">×</button>
+        )}
+        {coverBusy && <span className="absolute inset-0 grid place-items-center bg-background/50" data-testid="cover-busy"><Clock3 className="h-8 w-8 animate-spin text-primary" /></span>}
+      </div>
+      <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between md:p-6">
+        <div className="flex items-center gap-4">
+          <div className="relative"><div data-testid="box-profile-avatar" className="h-24 w-24 overflow-hidden rounded-3xl">{avatarSrc ? <img src={avatarSrc} alt={user?.name ?? ''} className="h-24 w-24 object-cover" data-testid="img-profile-avatar" /> : <div className="grid h-24 w-24 place-items-center bg-primary text-3xl font-bold text-primary-foreground">{initials(user?.name)}</div>}</div><label title="تغيير صورة الملف" className="absolute -bottom-1.5 -end-1.5 grid h-9 w-9 cursor-pointer place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:bg-muted" data-testid="label-upload-photo"><Camera className="h-4 w-4" /><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelected} disabled={photoBusy} data-testid="input-profile-photo" aria-label="رفع صورة الملف الشخصي" /></label>{profile.avatarUrl && !photoBusy && <button type="button" onClick={removePhoto} aria-label="إزالة الصورة" title="إزالة الصورة" className="absolute -top-1.5 -end-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground shadow-sm hover:text-destructive" data-testid="button-remove-photo">×</button>}{photoBusy && <span className="absolute inset-0 grid place-items-center rounded-3xl bg-background/60"><Clock3 className="h-7 w-7 animate-spin text-primary" /></span>}</div><div><h2 className="text-xl font-bold">{profile.headline}</h2><p className="mt-1 text-sm text-muted-foreground">{profile.location} · {profile.visibleToCompanies === false ? 'ملفك مخفي عن الشركات' : 'متاح لفرص جديدة'}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">ملف عام</span><span className="rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">CV محلل</span></div></div></div><div className="flex items-center gap-4"><ScoreRing score={profile.completion} size="lg" /><div><p className="text-sm text-muted-foreground">اكتمال الملف</p><p className="mt-1 text-sm font-bold">{profile.completion >= 100 ? 'ملفك مكتمل' : 'أضف مشروعاً لرفع النتيجة'}</p></div></div></div></div>
+    {coverError && (
+      <div role="alert" data-testid="error-profile-cover" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
+        <span>{coverError}</span>
+        <button type="button" onClick={() => setCoverError('')} className="text-xs font-bold underline opacity-80 hover:opacity-100">إخفاء</button>
+      </div>
+    )}
     {photoError && (
       <div role="alert" data-testid="error-profile-photo" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
         <span>{photoError}</span>

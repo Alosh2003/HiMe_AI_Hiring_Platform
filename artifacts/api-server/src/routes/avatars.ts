@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { like } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
+import { usersTable, candidatesTable } from "@workspace/db/schema";
 import { UPLOAD_DIR } from "../services/file-storage";
 
 const router: IRouter = Router();
@@ -46,8 +46,17 @@ router.get("/:name", async (req, res) => {
     where: like(usersTable.avatarUrl, `%/${fileName}`),
   });
   if (!owner) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    // Cover photos live on the candidate row and are served through this
+    // same public route; a file is served only when something actually
+    // points at it.
+    const coverOwner = await db.query.candidatesTable.findFirst({
+      columns: { id: true },
+      where: like(candidatesTable.coverUrl, `%/${fileName}`),
+    });
+    if (!coverOwner) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
   }
 
   const filePath = path.join(UPLOAD_DIR, fileName);

@@ -11,6 +11,9 @@ export const candidatesTable = pgTable("candidates", {
   location: text("location"),
   yearsExperience: integer("years_experience"),
   cvUrl: text("cv_url"),
+  // Profile-page cover photo (served publicly through /api/avatars like the
+  // avatar; a cover is meant to be seen and an <img> cannot send a token).
+  coverUrl: text("cover_url"),
   cvParsedData: jsonb("cv_parsed_data"),
   preferences: jsonb("preferences").$type<{
     industries: string[];

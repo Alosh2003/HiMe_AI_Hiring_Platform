@@ -644,6 +644,79 @@ router.delete("/photo", authMiddleware, requireRole("seeker"), async (req: AuthR
   res.status(204).end();
 });
 
+/**
+ * Uploads a profile-page cover photo. Same constraints as the avatar (5MB
+ * image), but stored on the candidate row — it describes the profile, not
+ * the account. The file is served publicly through /api/avatars exactly like
+ * an avatar: an <img> tag cannot send an Authorization header, and the
+ * avatars route accepts a file once either an avatar or a cover points at it.
+ */
+router.post("/cover", authMiddleware, requireRole("seeker"), (req, res, next) => {
+  photoUpload.single("file")(req, res, (err: unknown) => {
+    if (err) {
+      const message = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? "الصورة أكبر من 5 ميغابايت."
+        : err instanceof Error
+          ? err.message
+          : "تعذر رفع صورة الغلاف.";
+      res.status(400).json({ error: message });
+      return;
+    }
+    next();
+  });
+}, async (req: AuthRequest, res) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "لم يتم إرفاق صورة." });
+    return;
+  }
+
+  const candidate = await db.query.candidatesTable.findFirst({
+    columns: { id: true, coverUrl: true },
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+
+  const ext = file.mimetype === "image/png" ? "png" : file.mimetype === "image/webp" ? "webp" : "jpg";
+  const stored = await saveFile(file.buffer, `cover.${ext}`, file.mimetype);
+  const coverUrl = `/api/avatars/${stored.fileName}`;
+
+  await db.update(candidatesTable)
+    .set({ coverUrl, updatedAt: new Date() })
+    .where(eq(candidatesTable.id, candidate.id));
+
+  // Best-effort cleanup of the replaced cover.
+  if (candidate.coverUrl) {
+    await deleteFile(path.basename(candidate.coverUrl));
+  }
+
+  res.status(201).json({ coverUrl });
+});
+
+router.delete("/cover", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
+  const candidate = await db.query.candidatesTable.findFirst({
+    columns: { id: true, coverUrl: true },
+    where: eq(candidatesTable.userId, req.user!.userId),
+  });
+  if (!candidate) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+
+  await db.update(candidatesTable)
+    .set({ coverUrl: null, updatedAt: new Date() })
+    .where(eq(candidatesTable.id, candidate.id));
+
+  if (candidate.coverUrl) {
+    await deleteFile(path.basename(candidate.coverUrl));
+  }
+
+  res.status(204).end();
+});
+
 // ─── CV Upload with real file parsing ─────────────────────────────────────
 
 router.post("/cv", authMiddleware, requireRole("seeker"), upload.single("file"), async (req: AuthRequest, res) => {
