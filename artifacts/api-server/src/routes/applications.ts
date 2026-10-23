@@ -36,6 +36,11 @@ async function emailUser(
 router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest, res) => {
   const schema = z.object({
     jobId: z.string().uuid(),
+    mode: z.enum(["quick", "detailed"]).optional().default("quick"),
+    // Detailed-mode answers keyed by the job's application-form field ids.
+    // Empty/missing answers are not rejected here on purpose — the detailed
+    // branch below answers with the job's actual required field labels.
+    answers: z.record(z.string(), z.string().max(4000)).optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -73,6 +78,56 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     return;
   }
 
+  const formFields = Array.isArray(job.applicationForm) ? job.applicationForm : [];
+
+  // Detailed mode must satisfy the company-built form: every declared field
+  // answered, required ones non-empty, select answers among the options, and
+  // no invented field keys. Quick mode ignores the form by design — it sends
+  // the stored CV + profile instead.
+  let normalizedAnswers: Record<string, string> = {};
+  if (parsed.data.mode === "detailed") {
+    if (formFields.length === 0) {
+      res.status(400).json({
+        error: "هذه الوظيفة لا تطلب نموذج تقديم مفصلاً — استخدم التقديم السريع.",
+      });
+      return;
+    }
+    const provided = parsed.data.answers ?? {};
+    if (Object.keys(provided).some((key) => !formFields.some((f) => f.id === key))) {
+      res.status(400).json({ error: "Answers reference fields that do not exist in this job's form" });
+      return;
+    }
+    const problems: string[] = [];
+    normalizedAnswers = {};
+    for (const field of formFields) {
+      const value = (provided[field.id] ?? "").trim();
+      if (field.required && !value) {
+        problems.push(field.label);
+        continue;
+      }
+      if (value && field.type === "number" && !/^-?\d+(\.\d+)?$/.test(value)) {
+        problems.push(`${field.label} — أدخل رقماً`);
+        continue;
+      }
+      if (value && field.type === "date" && Number.isNaN(new Date(value).getTime())) {
+        problems.push(`${field.label} — تاريخ غير صالح`);
+        continue;
+      }
+      if (value && field.type === "select" && !(field.options ?? []).includes(value)) {
+        problems.push(`${field.label} — اختر من الخيارات`);
+        continue;
+      }
+      if (value) normalizedAnswers[field.id] = value;
+    }
+    if (problems.length > 0) {
+      res.status(400).json({
+        error: "أكمل إجابات النموذج المطلوبة قبل الإرسال.",
+        missing: problems,
+      });
+      return;
+    }
+  }
+
   const existing = await db.query.applicationsTable.findFirst({
     where: and(
       eq(applicationsTable.jobId, parsed.data.jobId),
@@ -89,6 +144,11 @@ router.post("/", authMiddleware, requireRole("seeker"), async (req: AuthRequest,
     jobId: parsed.data.jobId,
     candidateId: candidate.id,
     status: "applied",
+    mode: parsed.data.mode,
+    // Quick apply sends the current CV with the profile — snapshot the path
+    // so the company reviews exactly what was attached at apply time.
+    cvUrl: candidate.cvUrl,
+    ...(parsed.data.mode === "detailed" ? { answers: normalizedAnswers } : {}),
   }).returning();
 
   await db.update(jobsTable)

@@ -21,7 +21,7 @@ import {
 } from '@/components/app-kit';
 import { WorkflowGuide } from '@/components/workflow-guide';
 import { BrandMark, BrandPattern } from '@/components/brand-pattern';
-import type { ApplicationStatus, MatchResult } from '@/types';
+import type { ApplicationFormField, ApplicationStatus, MatchResult } from '@/types';
 
 // ─── Public Footer ────────────────────────────────────────────────────────────
 function PublicFooter() {
@@ -651,10 +651,20 @@ export function ApplicationsPage() {
                 <div>
                   <Link href={`/jobs/${item.job.id}`} className="text-sm font-bold hover:text-primary" data-testid={`link-application-job-${item.id}`}>{item.job.title}</Link>
                   <p className="mt-1 text-xs text-muted-foreground md:hidden">{item.job.company.name} · {formatDate(item.appliedAt)}</p>
+                  {item.mode && (
+                    <span className="mt-1 inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground md:hidden" data-testid={`mode-application-${item.id}`}>
+                      {item.mode === 'detailed' ? 'نموذج مفصّل' : 'تقديم سريع'}
+                    </span>
+                  )}
                 </div>
                 <p className="hidden text-xs text-muted-foreground md:block">{item.job.company.name}</p>
                 <p className="hidden text-xs text-muted-foreground md:block">{formatDate(item.appliedAt)}</p>
                 <div className="flex items-center gap-2">
+                  {item.mode && (
+                    <span className="hidden rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground md:inline" data-testid={`mode-application-md-${item.id}`}>
+                      {item.mode === 'detailed' ? 'نموذج مفصّل' : 'تقديم سريع'}
+                    </span>
+                  )}
                   <span className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusColors[item.status]}`} data-testid={`status-application-${item.id}`}>
                     {statusLabels[item.status]}
                   </span>
@@ -798,7 +808,12 @@ export function NewJobPage() {
     salary: '',
     skills: [] as string[],
     newSkill: '',
+    // Company-built application form. Empty list = the job admits only the
+    // quick path (CV + profile), which is always available.
+    applicationForm: [] as ApplicationFormField[],
   });
+  // The in-progress field being composed in the builder.
+  const [newField, setNewField] = useState<{ label: string; type: ApplicationFormField['type']; options: string; required: boolean; hint: string }>({ label: '', type: 'short-text', options: '', required: true, hint: '' });
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState('');
   // AI draft: paste an ad (or name a role) and the wizard fills for review.
@@ -872,6 +887,7 @@ export function NewJobPage() {
         salary: form.salary,
         requiredSkills: form.skills.map((name, i) => ({ id: `s-${i}`, name, category: 'professional' })),
         preferredSkills: [],
+        applicationForm: form.applicationForm,
       });
       setSubmitted(true);
       setTimeout(() => setLocation('/company/jobs'), 1500);
@@ -889,7 +905,40 @@ export function NewJobPage() {
     }
   };
 
-  const steps = ['المعلومات الأساسية', 'التفاصيل والمهارات', 'الراتب والنشر'];
+  const steps = ['المعلومات الأساسية', 'التفاصيل والمهارات', 'نموذج التقديم', 'الراتب والنشر'];
+
+  // ── Application-form builder ────────────────────────────────────────────
+  const addFormField = () => {
+    const label = newField.label.trim();
+    if (!label) return;
+    // Arabic users type the Arabic comma (،) just as often as the Latin one —
+    // accept both when splitting the select options.
+    const optionList = newField.options.split(/[،,]/).map((option) => option.trim()).filter(Boolean);
+    const options = newField.type === 'select' ? optionList : undefined;
+    if (newField.type === 'select' && options && options.length < 2) return;
+    setForm((prev) => ({
+      ...prev,
+      applicationForm: [...prev.applicationForm, {
+        id: `f-${Date.now()}-${prev.applicationForm.length}`,
+        label,
+        type: newField.type,
+        ...(options ? { options } : {}),
+        required: newField.required,
+        ...(newField.hint.trim() ? { hint: newField.hint.trim() } : {}),
+      }],
+    }));
+    setNewField({ label: '', type: newField.type, options: '', required: newField.required, hint: '' });
+  };
+  const removeFormField = (fieldId: string) =>
+    setForm((prev) => ({ ...prev, applicationForm: prev.applicationForm.filter((field) => field.id !== fieldId) }));
+  const moveFormField = (index: number, delta: -1 | 1) =>
+    setForm((prev) => {
+      const next = [...prev.applicationForm];
+      const target = index + delta;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...prev, applicationForm: next };
+    });
 
   if (companyLoading) {
     return <RoleShell role="company"><LoadingState /></RoleShell>;
@@ -1107,8 +1156,77 @@ export function NewJobPage() {
             </Card>
           )}
 
-          {/* Step 3 */}
+          {/* Step 3 — the application-form builder */}
           {step === 3 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">نموذج التقديم المفصّل</CardTitle></CardHeader>
+              <CardContent className="space-y-5">
+                <p className="rounded-lg bg-secondary/60 p-3 text-xs leading-6 text-muted-foreground">
+                  التقديم السريع متاح دائماً — يُرسل سيرة المتقدم وملفه كما هما.
+                  أضف هنا حقلاً خاصاً إذا أردت مساراً مفصّلاً: سيرى المرشح حقولك هذه ويجيب عنها، وتصلك الإجابات مع الطلب.
+                  كل الحقول اختيارية بالنسبة لك — نموذج فارغ يعني تقديماً سريعاً فقط.
+                </p>
+                {form.applicationForm.length > 0 && (
+                  <ul className="space-y-2" data-testid="list-application-form">
+                    {form.applicationForm.map((field, index) => (
+                      <li key={field.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary/30 p-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold">{field.label}{field.required && <span className="text-destructive"> *</span>}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {{ 'short-text': 'نص قصير', 'long-text': 'نص طويل', 'number': 'رقم', 'date': 'تاريخ', 'select': `اختيار: ${(field.options ?? []).join('، ') }` }[field.type]}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button type="button" onClick={() => moveFormField(index, -1)} disabled={index === 0} aria-label="أعلى" className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40" data-testid={`button-move-form-field-up-${index}`}>↑</button>
+                          <button type="button" onClick={() => moveFormField(index, 1)} disabled={index === form.applicationForm.length - 1} aria-label="أسفل" className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40" data-testid={`button-move-form-field-down-${index}`}>↓</button>
+                          <button type="button" onClick={() => removeFormField(field.id)} aria-label="إزالة" className="rounded-md border border-border px-2 py-1 text-xs text-destructive" data-testid={`button-remove-form-field-${index}`}><X className="h-3 w-3" /></button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {form.applicationForm.length === 0 && (
+                  <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground" data-testid="note-empty-form">
+                    لا حقول بعد — التقديم سيكون سريعاً فقط (السيرة + الملف).
+                  </p>
+                )}
+                <div className="rounded-xl border border-border p-4" data-testid="box-new-form-field">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="text-xs font-semibold">نص الحقل
+                      <Input value={newField.label} onChange={(e) => setNewField((prev) => ({ ...prev, label: e.target.value }))} placeholder="مثال: سنوات الخبرة في المجال" className="mt-1.5" data-testid="input-form-field-label" />
+                    </label>
+                    <label className="text-xs font-semibold">نوع الإجابة
+                      <select value={newField.type} onChange={(e) => setNewField((prev) => ({ ...prev, type: e.target.value as ApplicationFormField['type'] }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="select-form-field-type">
+                        <option value="short-text">نص قصير</option>
+                        <option value="long-text">نص طويل</option>
+                        <option value="number">رقم</option>
+                        <option value="date">تاريخ</option>
+                        <option value="select">اختيار من خيارات</option>
+                      </select>
+                    </label>
+                    {newField.type === 'select' && (
+                      <label className="text-xs font-semibold md:col-span-2">الخيارات (افصلها بفاصلة، خياران على الأقل)
+                        <Input value={newField.options} onChange={(e) => setNewField((prev) => ({ ...prev, options: e.target.value }))} placeholder="مثال: عن بعد، حضوري، هجين" className="mt-1.5" data-testid="input-form-field-options" />
+                      </label>
+                    )}
+                    <label className="text-xs font-semibold md:col-span-2">تنبيه مساعد (اختياري)
+                      <Input value={newField.hint} onChange={(e) => setNewField((prev) => ({ ...prev, hint: e.target.value }))} placeholder="نصيحة قصيرة تظهر تحت الحقل" className="mt-1.5" data-testid="input-form-field-hint" />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-xs font-semibold">
+                      <input type="checkbox" checked={newField.required} onChange={(e) => setNewField((prev) => ({ ...prev, required: e.target.checked }))} className="h-4 w-4 accent-[hsl(var(--primary))]" data-testid="checkbox-form-field-required" />
+                      إجابة إلزامية
+                    </label>
+                    <Button type="button" onClick={addFormField} disabled={!newField.label.trim() || (newField.type === 'select' && newField.options.split(/[،,]/).filter((o) => o.trim()).length < 2)} data-testid="button-add-form-field"><Plus className="h-4 w-4" />إضافة الحقل</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 4 */}
+          {step === 4 && (
             <div className="space-y-6">
               <Card>
                 <CardHeader><CardTitle className="text-base">الراتب والموعد</CardTitle></CardHeader>
@@ -1149,7 +1267,7 @@ export function NewJobPage() {
             </div>
             <div className="flex gap-3">
               <Link href="/company/jobs" className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold" data-testid="link-cancel-job">إلغاء</Link>
-              {step < 3 ? (
+              {step < steps.length ? (
                 <Button onClick={() => setStep(step + 1)} disabled={step === 1 && !form.title} data-testid="button-next-step">
                   الخطوة التالية
                 </Button>
@@ -1350,6 +1468,9 @@ export function CandidatesPage() {
                     candidate.status === 'shortlisted' ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'
                   }`}>
                     {statusLabels[candidate.status as ApplicationStatus]}
+                  </span>
+                  <span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-semibold ${candidate.applicationMode === 'detailed' ? 'bg-accent/15 text-accent-foreground' : 'bg-muted text-muted-foreground'}`} data-testid={`chip-candidate-mode-${candidate.id}`}>
+                    {candidate.applicationMode === 'detailed' ? 'نموذج مفصّل' : 'تقديم سريع'}
                   </span>
                 </div>
               </div>

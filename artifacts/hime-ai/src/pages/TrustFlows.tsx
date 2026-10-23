@@ -9,7 +9,7 @@ import { useDemo } from '@/hooks/use-demo';
 import { DashboardLayout } from '@/layouts';
 import { useAuth } from '@/contexts/auth-context';
 import { resolvePostAuthRedirect, readNextParam, resolveRegistrationRedirect, roleHome } from '@/lib/routes';
-import { login, register, getJob, apply as applyToJob, getProfile, uploadCv, forgotPassword, resetPassword, verifyEmail, resendVerification } from '@/services/api/demo-api';
+import { ApiError, login, register, getJob, apply as applyToJob, getProfile, uploadCv, forgotPassword, resetPassword, verifyEmail, resendVerification } from '@/services/api/demo-api';
 import { validateCvFile, validateLogin, validateRegistration } from '@/services/validation';
 import { FeedbackState, LoadingState, PublicNav } from '@/components/app-kit';
 import { BrandMark, BrandPattern } from '@/components/brand-pattern';
@@ -271,17 +271,63 @@ export function JobDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useLanguage();
   const { data: job, loading, error, reload } = useDemo(() => getJob(id || ''), [id]);
+  // Two application paths built side by side: quick = the stored CV + profile
+  // snapshot exactly as they are; detailed = the company's own form, when it
+  // built one for this job.
   const [applyState, setApplyState] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [applyMode, setApplyMode] = useState<'quick' | 'detailed'>('quick');
+  const [formOpen, setFormOpen] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [formErrors, setFormErrors] = useState<string[]>([]);
 
-  const apply = async () => {
+  const formFields = job?.applicationForm ?? [];
+
+  const resetApplyState = () => {
+    setFormErrors([]);
+  };
+
+  const applyQuick = async () => {
     if (!job) return;
+    resetApplyState();
+    setApplyMode('quick');
+    setFormOpen(false);
     setApplyState('submitting');
     try {
-      await applyToJob(job.id);
+      await applyToJob(job.id, { mode: 'quick' });
       setApplyState('success');
     } catch {
       setApplyState('error');
     }
+  };
+
+  const applyDetailed = async () => {
+    if (!job) return;
+    setApplyMode('detailed');
+    // Client-side first line: the server re-validates everything honestly.
+    const missing = formFields
+      .filter((field) => field.required && !(answers[field.id] ?? '').trim())
+      .map((field) => field.label);
+    setFormErrors(missing);
+    if (missing.length > 0) return;
+    setApplyState('submitting');
+    try {
+      await applyToJob(job.id, { mode: 'detailed', answers });
+      setApplyState('success');
+    } catch (err) {
+      resetApplyState();
+      setApplyState('error');
+      if (err instanceof ApiError && err.status === 400 && err.detail) {
+        setFormErrors([err.detail]);
+      }
+    }
+  };
+
+  const answer = (fieldId: string) => answers[fieldId] ?? '';
+
+  const setAnswer = (fieldId: string, value: string) => {
+    setAnswers((prev) => ({ ...prev, [fieldId]: value }));
+    const label = formFields.find((field) => field.id === fieldId)?.label;
+    if (label) setFormErrors((prev) => prev.filter((err) => err !== label));
   };
 
   if (loading) return <><PublicNav /><main className="mx-auto max-w-5xl px-4 py-16"><LoadingState /></main></>;
@@ -297,7 +343,7 @@ export function JobDetailsPage() {
             <div className="mb-8 flex gap-4"><div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-secondary text-primary"><BriefcaseBusiness className="h-7 w-7" /></div><div><h1 className="text-3xl font-bold">{job.title}</h1><p className="mt-2 text-muted-foreground">{job.company.name} · {job.location}</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-full bg-muted px-3 py-1 text-xs">{job.experience}</span><span className="rounded-full bg-muted px-3 py-1 text-xs">{job.contract}</span><span className="rounded-full bg-muted px-3 py-1 text-xs">{job.industry}</span></div></div></div>
             <section className="prose prose-sm max-w-none"><h2>عن الدور</h2><p>{job.description}</p><h2>المهارات المطلوبة</h2><div className="not-prose flex flex-wrap gap-2">{job.requiredSkills.map((skill) => <span key={skill.id} className="rounded-lg bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">{skill.name}</span>)}</div><h2>المهارات المفضلة</h2><div className="not-prose flex flex-wrap gap-2">{job.preferredSkills.map((skill) => <span key={skill.id} className="rounded-lg bg-muted px-3 py-2 text-xs">{skill.name}</span>)}</div><h2>المؤهلات</h2><p>{job.education}</p></section>
           </div>
-          <aside><Card className="sticky top-24"><CardContent className="p-6"><p className="text-xs text-muted-foreground">النطاق المتوقع</p><p className="mt-1 text-lg font-bold">{job.salary}</p><div className="my-5 space-y-3 border-y border-border py-5 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">آخر موعد</span><span>{job.deadline}</span></div><div className="flex justify-between"><span className="text-muted-foreground">المتقدمون</span><span>{job.applicants}</span></div></div>{applyState === 'success' ? <div className="rounded-lg bg-primary/10 p-3 text-center text-sm font-semibold text-primary" data-testid="status-application-success" role="status"><CheckCircle2 className="mx-auto mb-1 h-5 w-5" />تم إرسال طلبك بنجاح</div> : <><Button className="w-full" onClick={apply} disabled={applyState === 'submitting'} data-testid="button-apply-job">{applyState === 'submitting' ? 'جارٍ إرسال الطلب…' : t('apply')} <ArrowUpLeft className="h-4 w-4" /></Button>{applyState === 'error' && <p className="mt-3 rounded-lg bg-destructive/10 p-3 text-center text-xs text-destructive" data-testid="error-application" role="alert">تعذر إرسال الطلب حالياً. حاول مرة أخرى.</p>}</>}<p className="mt-3 text-center text-[11px] text-muted-foreground">سيتم ربط التقديم بحسابك عند تسجيل الدخول.</p></CardContent></Card></aside>
+          <aside><Card className="sticky top-24"><CardContent className="p-6"><p className="text-xs text-muted-foreground">النطاق المتوقع</p><p className="mt-1 text-lg font-bold">{job.salary}</p><div className="my-5 space-y-3 border-y border-border py-5 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">آخر موعد</span><span>{job.deadline}</span></div><div className="flex justify-between"><span className="text-muted-foreground">المتقدمون</span><span>{job.applicants}</span></div></div>{applyState === 'success' ? <div className="rounded-lg bg-primary/10 p-3 text-center text-sm font-semibold text-primary" data-testid="status-application-success" role="status"><CheckCircle2 className="mx-auto mb-1 h-5 w-5" />تم إرسال طلبك بنجاح{applyMode === 'detailed' ? ' بالنموذج المفصّل' : ' السريع'}</div> : <><Button className="w-full" onClick={applyQuick} disabled={applyState === 'submitting'} data-testid="button-apply-job"><Sparkles className="h-4 w-4" />{applyState === 'submitting' && applyMode === 'quick' ? 'جارٍ إرسال الطلب…' : t('apply') + ' السريع — سيرتك وملفك'}</Button><p className="mt-1.5 text-center text-[11px] text-muted-foreground">يُرسل سيرتك المرفوعة وملفك المهني كما هما الآن.</p>{formFields.length > 0 && (<Button variant="outline" className="mt-3 w-full" onClick={() => { setApplyMode('detailed'); setFormOpen((v) => !v); }} disabled={applyState === 'submitting'} data-testid="button-apply-detailed">نموذج التقديم المفصّل</Button>)}{formFields.length === 0 && (<p className="mt-3 rounded-lg bg-muted p-2.5 text-center text-[11px] text-muted-foreground" data-testid="note-no-form">هذه الوظيفة لا تطلب نموذجاً مفصلاً — التقديم السريع كافٍ.</p>)}{formFields.length > 0 && formOpen && (<form onSubmit={(e) => { e.preventDefault(); void applyDetailed(); }} className="mt-4 space-y-4 rounded-xl border border-border bg-secondary/40 p-4" data-testid="form-apply-detailed">{formFields.map((field) => (<div key={field.id}><label className="block text-xs font-bold">{field.label}{field.required && <span className="text-destructive"> *</span>}<div className="mt-1.5">{field.type === 'long-text' ? (<textarea rows={3} value={answer(field.id)} onChange={(e) => setAnswer(field.id, e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-6" data-testid={`input-apply-${field.id}`} />) : field.type === 'select' ? (<select value={answer(field.id)} onChange={(e) => setAnswer(field.id, e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid={`input-apply-${field.id}`}><option value="">اختر…</option>{(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select>) : (<input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={answer(field.id)} onChange={(e) => setAnswer(field.id, e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid={`input-apply-${field.id}`} />)}</div></label>{field.hint && <p className="mt-1 text-[10px] text-muted-foreground">{field.hint}</p>}</div>))}{formErrors.length > 0 && (<p className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive" role="alert" data-testid="error-application">{applyState === 'error' ? formErrors[0] : `أكمل: ${formErrors.join('، ')}`}</p>)}<button type="submit" disabled={applyState === 'submitting'} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-bold text-primary-foreground hover:opacity-90 disabled:opacity-70" data-testid="button-submit-detailed">{applyState === 'submitting' && applyMode === 'detailed' ? 'جارٍ إرسال النموذج…' : 'إرسال النموذج المفصّل'}</button></form>)}{applyState === 'error' && formErrors.length === 0 && <p className="mt-3 rounded-lg bg-destructive/10 p-3 text-center text-xs text-destructive" data-testid="error-application" role="alert">تعذر إرسال الطلب حالياً. حاول مرة أخرى.</p>}</>}<p className="mt-3 text-center text-[11px] text-muted-foreground">سيتم ربط التقديم بحسابك عند تسجيل الدخول.</p></CardContent></Card></aside>
         </div>
       </main>
     </>

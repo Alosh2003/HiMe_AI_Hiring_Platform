@@ -73,9 +73,23 @@ const application = {
   candidateId: TEST_IDS.candidate1,
   status: 'reviewing',
   matchScore: 92,
+  mode: 'quick',
+  cvUrl: '/files/cv-sample.pdf',
+  answers: null,
   appliedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };
+
+/** A job with a company-built application form (detailed-apply path). */
+const jobWithForm = {
+  ...job,
+  applicationForm: [
+    { id: 'f-ears', label: 'سنوات الخبرة في المنتجات', type: 'number', required: true, hint: 'رقم' },
+    { id: 'f-case', label: 'اشرح منتجاً قمت به', type: 'long-text', required: true },
+    { id: 'f-start', label: 'نمط العمل المفضل', type: 'select', required: true, options: ['عن بعد', 'حضوري', 'هجين'] },
+  ],
+};
+export const jobWithFormFixture = jobWithForm;
 
 // Match fixtures mirror the engine's real response shape (nested categories,
 // overallScore on top) exactly as api-server/src/ai/engine.ts produces it.

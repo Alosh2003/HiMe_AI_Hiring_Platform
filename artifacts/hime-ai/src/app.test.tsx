@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, cleanup, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import App from './App';
-import { server, TEST_IDS, jobFixture, candidateFixture } from '@/test/msw';
+import { server, TEST_IDS, jobFixture, candidateFixture, jobWithFormFixture } from '@/test/msw';
 import { assessRedirectTarget } from '@/lib/routes';
 
 // A second job for the ranking/reorder tests (cloned from the handler's fixture).
@@ -1640,6 +1640,71 @@ describe('applications', () => {
 
     expect(await screen.findByTestId('error-application', {}, { timeout: 3000 })).toBeInTheDocument();
   });
+
+  it('quick apply sends mode=quick without answers, and a job without a form says so', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('*/api/applications', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json({ id: TEST_IDS.application1, jobId: JOB_ID, status: 'applied', mode: 'quick' }, { status: 201 });
+      }),
+    );
+    renderAt(`/jobs/${JOB_ID}`);
+
+    // The msw job fixture has no application form — say quick is enough.
+    await screen.findByTestId('button-apply-job', {}, { timeout: 3000 });
+    expect(screen.getByTestId('note-no-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-apply-detailed')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('button-apply-job'));
+    expect(await screen.findByTestId('status-application-success', {}, { timeout: 3000 })).toHaveTextContent('السريع');
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    // `answers` must be absent entirely — JSON drops undefined keys, so this
+    // also proves the wire payload never carries an empty answers object.
+    expect(bodies[0]).toMatchObject({ jobId: JOB_ID, mode: 'quick' });
+    expect(bodies[0].answers).toBeUndefined();
+  });
+
+  it('a company-built form unlocks the detailed path and posts its answers', async () => {
+    setRole('seeker');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`*/api/jobs/${JOB_ID}`, async () => HttpResponse.json(jobWithFormFixture)),
+      http.post('*/api/applications', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json({ id: 'app-new', jobId: JOB_ID, status: 'applied', mode: 'detailed' }, { status: 201 });
+      }),
+    );
+    renderAt(`/jobs/${JOB_ID}`);
+
+    // The detailed path is offered next to the quick one.
+    const detailedButton = await screen.findByTestId('button-apply-detailed', {}, { timeout: 3000 });
+    expect(screen.queryByTestId('note-no-form')).toBeNull();
+    fireEvent.click(detailedButton);
+
+    // Submitting before answering the required fields explains itself.
+    fireEvent.click(screen.getByTestId('button-submit-detailed'));
+    expect(await screen.findByTestId('error-application')).toHaveTextContent('أكمل:');
+    expect(screen.getByTestId('error-application')).toHaveTextContent('سنوات الخبرة في المنتجات');
+    expect(bodies).toHaveLength(0);
+
+    // Fill the three company fields and submit for real.
+    fireEvent.change(screen.getByTestId('input-apply-f-ears'), { target: { value: '5' } });
+    fireEvent.change(screen.getByTestId('input-apply-f-case'), { target: { value: 'أعادت بنية القائمة الرئيسية' } });
+    fireEvent.change(screen.getByTestId('input-apply-f-start'), { target: { value: 'عن بعد' } });
+    fireEvent.click(screen.getByTestId('button-submit-detailed'));
+
+    expect(await screen.findByTestId('status-application-success', {}, { timeout: 3000 })).toHaveTextContent('النموذج');
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({
+      jobId: JOB_ID,
+      mode: 'detailed',
+      answers: { 'f-ears': '5', 'f-case': 'أعادت بنية القائمة الرئيسية', 'f-start': 'عن بعد' },
+    });
+  });
 });
 
 // ─── Job posting gate (verification required) ───────────────────────────────
@@ -1698,6 +1763,64 @@ describe('job posting gate', () => {
   });
 });
 
+// ─── Application-form builder (company) ─────────────────────────────────────
+
+describe('application form builder', () => {
+  it('creates fields, reorders them, and publishes the form with the job', async () => {
+    setRole('company');
+    const bodies: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('*/api/jobs', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        return HttpResponse.json({ ...jobFixture, id: 'j-published', title: String(body.title ?? ''), applicationForm: body.applicationForm }, { status: 201 });
+      }),
+    );
+    renderAt('/company/jobs/new');
+
+    // Step 1 → step 2: fill the publication basics.
+    await screen.findByTestId('button-next-step', {}, { timeout: 3000 });
+    fireEvent.change(screen.getByTestId('input-المسمى الوظيفي'), { target: { value: 'مدير تطوع افتراضي' } });
+    fireEvent.click(screen.getByTestId('button-next-step'));
+    fireEvent.change(screen.getByTestId('input-وصف الوظيفة'), { target: { value: 'يدير المتطوعين ويقيس الأثر شهرياً.' } });
+    fireEvent.click(screen.getByTestId('button-next-step'));
+
+    // Step 3 — build two fields: a required select (with two options) and a date.
+    expect(screen.getByTestId('note-empty-form')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('input-form-field-label'), { target: { value: 'نمط العمل المفضل' } });
+    fireEvent.change(screen.getByTestId('select-form-field-type'), { target: { value: 'select' } });
+    fireEvent.change(screen.getByTestId('input-form-field-options'), { target: { value: 'عن بعد، حضوري' } });
+    fireEvent.click(screen.getByTestId('button-add-form-field'));
+
+    fireEvent.change(screen.getByTestId('input-form-field-label'), { target: { value: 'متى يمكنك البدء؟' } });
+    fireEvent.change(screen.getByTestId('select-form-field-type'), { target: { value: 'date' } });
+    fireEvent.click(screen.getByTestId('checkbox-form-field-required'));
+    fireEvent.click(screen.getByTestId('button-add-form-field'));
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('نمط العمل المفضل');
+    expect(rows[0]).toHaveTextContent('اختيار: عن بعد، حضوري');
+    expect(rows[1]).toHaveTextContent('متى يمكنك البدء؟');
+
+    // Reorder: the date field moves above the select, then back.
+    fireEvent.click(screen.getByTestId('button-move-form-field-up-1'));
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('متى يمكنك البدء؟');
+    fireEvent.click(screen.getByTestId('button-move-form-field-down-0'));
+
+    // Publish — the job is created with the built form attached...
+    fireEvent.click(screen.getByTestId('button-next-step'));
+    fireEvent.click(screen.getByTestId('button-publish-job'));
+    expect(await screen.findByText('تم نشر الوظيفة بنجاح!', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    const form = bodies[0].applicationForm as Array<Record<string, unknown>>;
+    expect(form).toMatchObject([
+      { label: 'نمط العمل المفضل', type: 'select', options: ['عن بعد', 'حضوري'], required: true },
+      { label: 'متى يمكنك البدء؟', type: 'date', required: false },
+    ]);
+  });
+});
+
 // ─── AI job draft ────────────────────────────────────────────────────────────
 
 describe('AI job draft', () => {
@@ -1720,7 +1843,8 @@ describe('AI job draft', () => {
     fireEvent.click(screen.getByTestId('button-next-step'));
     expect(await screen.findByText('SQL', {}, { timeout: 3000 })).toBeInTheDocument();
 
-    // …and step 3 the salary, plus a deadline that is never in the past.
+    // …and step 4 the salary, plus a deadline that is never in the past.
+    fireEvent.click(screen.getByTestId('button-next-step'));
     fireEvent.click(screen.getByTestId('button-next-step'));
     expect(await screen.findByDisplayValue('15000', {}, { timeout: 3000 })).toBeInTheDocument();
     const deadline = screen.getByTestId('input-job-deadline') as HTMLInputElement;

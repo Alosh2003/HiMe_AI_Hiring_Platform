@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, ilike, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { jobsTable, companiesTable, jobSkillsTable, skillsTable } from "@workspace/db/schema";
+import { jobsTable, companiesTable, jobSkillsTable, skillsTable, applicationFormFieldSchema } from "@workspace/db/schema";
 import { authMiddleware, requireRole, verifyToken, type AuthRequest } from "../middleware/auth";
 import { validateUuidParam } from "../middleware/validate-params";
 import { writeAudit } from "../lib/audit";
@@ -30,6 +30,19 @@ const createJobSchema = z.object({
   deadline: z.union([z.iso.date(), z.string().datetime()]).optional(),
   requiredSkills: z.array(z.object({ name: z.string(), category: z.string() })).default([]),
   preferredSkills: z.array(z.object({ name: z.string(), category: z.string() })).default([]),
+  // Company-built application form (detailed-apply path). Each field keeps the
+  // client id so the seeker's answers line up with the definitions.
+  applicationForm: applicationFormFieldSchema.array()
+    .max(20)
+    .refine(
+      (fields) => new Set(fields.map((f) => f.id)).size === fields.length,
+      { message: "Application form field ids must be unique" },
+    )
+    .refine(
+      (fields) => fields.every((f) => f.type !== "select" || (f.options ?? []).length >= 2),
+      { message: "Select fields must define at least two options" },
+    )
+    .default([]),
 });
 
 const MAX_LIMIT = 100;
@@ -253,6 +266,7 @@ router.post("/", authMiddleware, requireRole("company"), async (req: AuthRequest
     salaryMin: data.salaryMin,
     salaryMax: data.salaryMax,
     deadline: data.deadline ? deadlineDate(data.deadline) : null,
+    applicationForm: data.applicationForm,
     status: "active",
   }).returning();
 

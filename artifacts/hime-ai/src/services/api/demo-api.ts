@@ -62,7 +62,11 @@ function mapApiApplication(raw: Record<string, unknown>): Application {
 let demoCompany: Company = { id: 'c-1', name: 'مِداد للتقنية', industry: 'تقنية المعلومات', location: 'الرياض، السعودية', website: 'medad.example', description: 'نبني أدوات تجعل العمل العربي أكثر وضوحاً وإنسانية.', teamSize: '51–200', verified: true };
 let demoCompanies: Company[] = [demoCompany, { id: 'c-2', name: 'سِراج المالية', industry: 'التقنية المالية', location: 'دبي، الإمارات', website: 'siraj.example', description: 'منصة مالية رقمية للجيل القادم.', teamSize: '11–50', verified: true }, { id: 'c-3', name: 'أثر للاستشارات', industry: 'الاستشارات', location: 'جدة، السعودية', website: 'athar.example', description: 'نحو قرارات أعمال أفضل في المنطقة.', teamSize: '51–200', verified: false }];
 const makeJob = (id: string, title: string, c: Company, extra: Partial<Job> = {}): Job => ({ id, companyId: c.id, company: c, title, description: 'نبحث عن شخص شغوف يبني منتجات مؤثرة ويحوّل المسائل المعقدة إلى تجارب بسيطة. ستعمل مع فريق متعدد التخصصات في بيئة تتعلم فيها كل يوم.', industry: c.industry, location: c.location, contract: 'full-time', experience: 'mid', education: 'بكالوريوس أو خبرة معادلة', requiredSkills: skills(['Product strategy', 'Research', 'Communication']), preferredSkills: skills(['Analytics', 'Figma']), salary: '18,000 – 24,000 ر.س', deadline: '2025-06-30', postedAt: 'منذ يومين', applicants: 24, status: 'active', ...extra });
-const demoJobs: Job[] = [makeJob('j-1', 'مصمم تجربة مستخدم أول', demoCompany, { requiredSkills: skills(['Figma', 'User research', 'Arabic UX']), preferredSkills: skills(['Design systems', 'Prototyping']), experience: 'senior', applicants: 18 }), makeJob('j-2', 'مدير منتج — منصات الذكاء الاصطناعي', demoCompanies[1], { requiredSkills: skills(['Product strategy', 'AI products', 'Roadmapping']), preferredSkills: skills(['B2B SaaS', 'Analytics']), salary: '22,000 – 30,000 ر.س', applicants: 31 }), makeJob('j-3', 'مهندس واجهات أمامية', demoCompany, { requiredSkills: skills(['React', 'TypeScript', 'CSS']), preferredSkills: skills(['Testing', 'Accessibility']), location: 'الرياض أو عن بعد', applicants: 42 }), makeJob('j-4', 'كاتب محتوى تقني', demoCompanies[2], { requiredSkills: skills(['Arabic writing', 'Content strategy', 'SEO']), preferredSkills: skills(['English', 'B2B']), contract: 'contract', experience: 'entry', salary: '9,000 – 13,000 ر.س', applicants: 12 })];
+const demoJobs: Job[] = [makeJob('j-1', 'مصمم تجربة مستخدم أول', demoCompany, { requiredSkills: skills(['Figma', 'User research', 'Arabic UX']), preferredSkills: skills(['Design systems', 'Prototyping']), experience: 'senior', applicants: 18, applicationForm: [
+  { id: 'f-experience', label: 'سنوات الخبرة في تصميم المنتجات', type: 'number', required: true, hint: 'رقم صحيح' },
+  { id: 'f-case', label: 'اذكر منتجاً صممته وأثره', type: 'long-text', required: true, hint: 'سطران تكفيان' },
+  { id: 'f-start', label: 'متى يمكنك البدء؟', type: 'date', required: false },
+] }), makeJob('j-2', 'مدير منتج — منصات الذكاء الاصطناعي', demoCompanies[1], { requiredSkills: skills(['Product strategy', 'AI products', 'Roadmapping']), preferredSkills: skills(['B2B SaaS', 'Analytics']), salary: '22,000 – 30,000 ر.س', applicants: 31 }), makeJob('j-3', 'مهندس واجهات أمامية', demoCompany, { requiredSkills: skills(['React', 'TypeScript', 'CSS']), preferredSkills: skills(['Testing', 'Accessibility']), location: 'الرياض أو عن بعد', applicants: 42 }), makeJob('j-4', 'كاتب محتوى تقني', demoCompanies[2], { requiredSkills: skills(['Arabic writing', 'Content strategy', 'SEO']), preferredSkills: skills(['English', 'B2B']), contract: 'contract', experience: 'entry', salary: '9,000 – 13,000 ر.س', applicants: 12 })];
 const demoExperiences = [{ id: 'e-1', role: 'مصمم منتجات', company: 'ستوديو رِواق', location: 'الرياض', startDate: '2021', endDate: 'الآن', description: 'تصميم تجارب رقمية لمنتجات مالية وتعليمية.' }];
 const demoProfile: CandidateProfile = { id: 'p-1', userId: 'u-1', headline: 'مصمم منتجات يهتم بما يشعر به الناس', summary: 'أصمم منتجات رقمية عربية واضحة، من البحث إلى الإطلاق، مع اهتمام خاص بإمكانية الوصول واللغة.', location: 'الرياض، السعودية', phone: '+966 50 123 4567', skills: skills(['Figma', 'User research', 'Arabic UX', 'Design systems', 'Prototyping']), experiences: demoExperiences, education: [{ id: 'ed-1', institution: 'جامعة الملك سعود', degree: 'بكالوريوس', field: 'تصميم الوسائط الرقمية', year: '2020' }], projects: [{ id: 'pr-1', name: 'مَسار', description: 'تجربة تخطيط مالي للشباب.', skills: ['Research', 'Figma'] }], certifications: [{ id: 'cert-1', name: 'Google UX Design', issuer: 'Google', year: '2022' }], completion: 82, cvStatus: 'analyzed', preferences: { industries: ['تقنية المعلومات'], locations: ['الرياض', 'عن بعد'], contract: 'full-time', remote: true } };
 const demoRecommendations: MatchResult[] = demoJobs.slice(0, 3).map((job, i) => ({ id: `m-${i}`, jobId: job.id, candidateId: 'u-1', jobTitle: job.title, score: [92, 87, 76][i], breakdown: { skills: [94, 84, 71][i], experience: [90, 91, 74][i], education: [92, 86, 78][i], culture: [88, 85, 72][i], location: [95, 80, 76][i], salary: [90, 86, 70][i] }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), relevantExperience: demoExperiences, relevantProjects: demoProfile.projects, explanation: 'خبرتك في تصميم المنتجات والبحث النوعي تتقاطع بوضوح مع متطلبات الدور.' }));
@@ -708,15 +712,19 @@ export async function applications() {
   return demoApplications;
 }
 
-export async function apply(jobId: string) {
+export async function apply(jobId: string, options: { mode?: 'quick' | 'detailed'; answers?: Record<string, string> } = {}) {
+  const mode = options.mode ?? 'quick';
   if (hasApi()) {
-    const app = await apiRequest<Application>('/applications', { method: 'POST', body: JSON.stringify({ jobId }) });
+    const app = await apiRequest<Application & { missing?: string[] }>('/applications', {
+      method: 'POST',
+      body: JSON.stringify({ jobId, mode, ...(mode === 'detailed' ? { answers: options.answers ?? {} } : {}) }),
+    });
     return mapApiApplication(app as unknown as Record<string, unknown>);
   }
   await wait();
   const job = demoJobs.find((item) => item.id === jobId);
   if (!job) throw new Error('Job not found');
-  const item: Application = { id: `a-${Date.now()}`, job, candidateId: 'u-1', appliedAt: 'الآن', status: 'applied', matchScore: 84 };
+  const item: Application = { id: `a-${Date.now()}`, job, candidateId: 'u-1', appliedAt: 'الآن', status: 'applied', matchScore: 84, mode, ...(mode === 'detailed' ? { answers: options.answers ?? {} } : {}) };
   demoApplications.unshift(item);
   return item;
 }
@@ -800,12 +808,13 @@ export async function createJob(input: Partial<Job>) {
         deadline: input.deadline,
         requiredSkills: input.requiredSkills || [],
         preferredSkills: input.preferredSkills || [],
+        applicationForm: input.applicationForm ?? [],
       }),
     });
     return mapApiJob(job as unknown as RawJob)!;
   }
   await wait();
-  const newJob = makeJob(`j-${Date.now()}`, input.title || 'وظيفة جديدة', demoCompany, input);
+  const newJob = makeJob(`j-${Date.now()}`, input.title || 'وظيفة جديدة', demoCompany, { applicationForm: input.applicationForm, ...input });
   demoJobs.unshift(newJob);
   return newJob;
 }
@@ -836,6 +845,9 @@ type ApiJobApplication = {
   matchScore?: number | null;
   matchBreakdown?: unknown;
   aiExplanation?: string | null;
+  mode?: 'quick' | 'detailed';
+  cvUrl?: string | null;
+  answers?: Record<string, string> | null;
   job?: Job;
   candidate: {
     id: string;
@@ -867,12 +879,17 @@ export async function candidates(jobId: string) {
         missingSkills: chips(skillNames(app.matchBreakdown, 'missing')),
         explanation: app.aiExplanation || '',
         status: app.status,
+        // How the candidate applied — quick (CV + profile) or detailed
+        // (the company's own form answers).
+        applicationMode: (app.mode ?? 'quick') as 'quick' | 'detailed',
+        applicationCvUrl: app.cvUrl ?? null,
+        applicationAnswers: (app.answers ?? null) as Record<string, string> | null,
       }];
     });
   }
   await wait();
   const job = demoJobs.find((item) => item.id === jobId) || demoJobs[0];
-  return [{ id: 'u-8', name: 'سارة الحربي', headline: 'Product Designer', location: 'الرياض، السعودية', completion: 82, cvAnalyzed: true, score: 94, job, breakdown: { skills: 96, experience: 91, education: 90, culture: 88, location: 95, salary: 85 }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), explanation: 'مهارات المرشح تغطي متطلبات الدور الأساسية مع خبرة قوية في التصميم.', status: 'shortlisted' as ApplicationStatus }, { id: 'u-9', name: 'عمر الغامدي', headline: 'UX Researcher', location: 'جدة، السعودية', completion: 74, cvAnalyzed: true, score: 86, job, breakdown: { skills: 88, experience: 84, education: 89, culture: 82, location: 70, salary: 80 }, matchedSkills: job.requiredSkills.slice(0, 1), missingSkills: job.requiredSkills.slice(1), explanation: 'ملف قوي في الأبحاث مع فجوات في بعض المهارات المطلوبة.', status: 'reviewing' as ApplicationStatus }];
+  return [{ id: 'u-8', name: 'سارة الحربي', headline: 'Product Designer', location: 'الرياض، السعودية', completion: 82, cvAnalyzed: true, score: 94, job, breakdown: { skills: 96, experience: 91, education: 90, culture: 88, location: 95, salary: 85 }, matchedSkills: job.requiredSkills.slice(0, 2), missingSkills: job.requiredSkills.slice(2), explanation: 'مهارات المرشح تغطي متطلبات الدور الأساسية مع خبرة قوية في التصميم.', status: 'shortlisted' as ApplicationStatus, applicationMode: 'quick' as const, applicationCvUrl: '/files/demo-cv.pdf', applicationAnswers: null }, { id: 'u-9', name: 'عمر الغامدي', headline: 'UX Researcher', location: 'جدة، السعودية', completion: 74, cvAnalyzed: true, score: 86, job, breakdown: { skills: 88, experience: 84, education: 89, culture: 82, location: 70, salary: 80 }, matchedSkills: job.requiredSkills.slice(0, 1), missingSkills: job.requiredSkills.slice(1), explanation: 'ملف قوي في الأبحاث مع فجوات في بعض المهارات المطلوبة.', status: 'reviewing' as ApplicationStatus, applicationMode: 'detailed' as const, applicationCvUrl: null, applicationAnswers: { 'f-experience': '6', 'f-case': 'أعدت بنية قائمة قياس داخلكم فخفضت زمن الاستشارة من أسبوع إلى يومين.' } }];
 }
 
 export async function company() {

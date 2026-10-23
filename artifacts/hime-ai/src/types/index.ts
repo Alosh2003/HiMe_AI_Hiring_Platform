@@ -52,8 +52,10 @@ export interface CvAssessment {
 }
 
 export interface Company { id: string; name: string; industry: string; location: string; website: string; description: string; teamSize: string; verified: boolean; verificationStatus?: VerificationStatus; verificationNote?: string | null; }
-export interface Job { id: string; companyId: string; company: Company; title: string; description: string; industry: string; location: string; contract: ContractType; experience: ExperienceLevel; education: string; requiredSkills: Skill[]; preferredSkills: Skill[]; salary?: string; deadline: string; postedAt: string; applicants: number; status: 'active' | 'paused' | 'closed'; }
-export interface Application { id: string; job: Job; candidateId: string; appliedAt: string; status: ApplicationStatus; matchScore: number | null; }
+/** A field the company defined for its per-job application form. */
+export interface ApplicationFormField { id: string; label: string; type: 'short-text' | 'long-text' | 'number' | 'date' | 'select'; options?: string[]; required?: boolean; hint?: string; }
+export interface Job { id: string; companyId: string; company: Company; title: string; description: string; industry: string; location: string; contract: ContractType; experience: ExperienceLevel; education: string; requiredSkills: Skill[]; preferredSkills: Skill[]; salary?: string; deadline: string; postedAt: string; applicants: number; status: 'active' | 'paused' | 'closed'; /** Company-built detailed-application form; empty = quick apply only. */ applicationForm?: ApplicationFormField[]; }
+export interface Application { id: string; job: Job; candidateId: string; appliedAt: string; status: ApplicationStatus; matchScore: number | null; /** quick = CV + profile sent as-is; detailed = company-built form filled. */ mode?: 'quick' | 'detailed'; /** The CV path attached at apply time (snapshot). */ cvUrl?: string | null; /** Detailed-mode answers keyed by the job's form field ids. */ answers?: Record<string, string>; }
 /**
  * The six categories the matching engine actually computes
  * (see api-server/src/ai/engine.ts). `null` means the engine produced no
