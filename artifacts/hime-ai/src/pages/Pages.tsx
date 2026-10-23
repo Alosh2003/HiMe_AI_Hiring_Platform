@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import {
   ArrowUpLeft, ArrowDownLeft, BriefcaseBusiness, Building2, Check,
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import * as demoApi from '@/services/api/demo-api';
 import { useLanguage } from '@/i18n';
+import { useAuth } from '@/contexts/auth-context';
 import { useDemo } from '@/hooks/use-demo';
 import { RoleShell } from '@/components/role-shell';
 import { formatDate } from '@/lib/format';
@@ -220,14 +221,65 @@ export function HomePage() {
 // ─── Jobs Page ────────────────────────────────────────────────────────────────
 export function JobsPage() {
   const { t } = useLanguage();
+  const { user, isAuthenticated } = useAuth();
   const [search, setSearch] = useState('');
   const [industry, setIndustry] = useState('');
   const [contract, setContract] = useState('');
+  // Sort mode: 'fit' (three-stage profile ranking) is the seeker default,
+  // 'recent' is the plain chronological order everyone else sees.
+  const [sortMode, setSortMode] = useState<'fit' | 'recent'>('recent');
   const { data, loading, error, reload } = useDemo(
     () => demoApi.listJobs({ search, industry, contract }),
     [search, industry, contract],
   );
-  const jobs = data || [];
+  const seekerOnly = isAuthenticated && user?.role === 'seeker';
+  const [ranking, setRanking] = useState<demoApi.JobsRanking | null>(null);
+  const [rankingState, setRankingState] = useState<'idle' | 'loading' | 'ready' | 'unavailable' | 'error'>('idle');
+
+  useEffect(() => {
+    if (!seekerOnly) {
+      setRanking(null);
+      setRankingState('idle');
+      setSortMode('recent');
+      return;
+    }
+    let alive = true;
+    setRankingState('loading');
+    setSortMode('fit');
+    demoApi.jobsRanking()
+      .then((result) => {
+        if (!alive) return;
+        setRanking(result);
+        // 'ready' only when the stage-2 rating actually produced an order;
+        // 'unavailable' keeps the stage-1 order and says so honestly.
+        const usable = result !== null && result.stages.rating.status !== 'unavailable';
+        setRankingState(usable ? 'ready' : 'unavailable');
+      })
+      .catch(() => {
+        if (alive) setRankingState('error');
+      });
+    return () => { alive = false; };
+  }, [seekerOnly]);
+
+  const jobs = useMemo(() => {
+    const list = data || [];
+    if (sortMode !== 'fit' || !ranking) return list;
+    // Follow the server's stage-3 order; jobs absent from the ranking
+    // (filtered in, or listed after a re-publish) keep their original spot
+    // at the end instead of being dropped.
+    const orderIndex = new Map(ranking.jobs.map((entry, i) => [entry.jobId, i]));
+    return [...list].sort((a, b) => (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity));
+  }, [data, sortMode, ranking]);
+  const rankByJob = useMemo(
+    () => new Map((ranking?.jobs ?? []).map((entry) => [entry.jobId, entry])),
+    [ranking],
+  );
+  const rankNotice =
+    rankingState === 'loading' ? 'جارٍ ترتيب الوظائف حسب ملفك: فرز الملف ← تقييم ذكي ← ترتيب نهائي…'
+    : rankingState === 'unavailable' && ranking ? 'التقييم الذكي غير متاح الآن — الترتيب حسب سيرتك فقط.'
+    : rankingState === 'error' ? 'تعذّر الترتيب الذكي — العرض بالترتيب الافتراضي.'
+    : null;
+
   return (
     <>
       <PublicNav />
@@ -261,11 +313,36 @@ export function JobsPage() {
           <EmptySearch onClear={() => { setSearch(''); setIndustry(''); setContract(''); }} />
         ) : (
           <>
-            <div className="mb-4 flex items-center justify-between text-sm text-muted-foreground">
-              <span>{jobs.length} فرص متاحة</span>
-              <button className="inline-flex items-center gap-1" data-testid="button-sort-jobs">الأحدث <ChevronDown className="h-4 w-4" /></button>
+            <div className="mb-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span data-testid="label-jobs-count">{jobs.length} فرص متاحة</span>
+              <div className="flex items-center gap-2">
+                {rankNotice && <span className="text-xs" data-testid="label-ranking-status">{rankNotice}</span>}
+                {seekerOnly ? (
+                  <div className="inline-flex overflow-hidden rounded-lg border border-border" data-testid="group-sort-jobs">
+                    <button
+                      type="button"
+                      onClick={() => setSortMode('fit')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${sortMode === 'fit' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                      data-testid="button-sort-fit"
+                    >الأكثر تطابقاً</button>
+                    <button
+                      type="button"
+                      onClick={() => setSortMode('recent')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${sortMode === 'recent' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                      data-testid="button-sort-recent"
+                    >الأحدث</button>
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center gap-1">الأحدث <ChevronDown className="h-4 w-4" /></span>
+                )}
+              </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">{jobs.map((job) => <JobCard key={job.id} job={job} />)}</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {jobs.map((job) => {
+                const entry = sortMode === 'fit' ? rankByJob.get(job.id) : undefined;
+                return <JobCard key={job.id} job={job} match={entry ? entry.finalScore : undefined} />;
+              })}
+            </div>
           </>
         )}
       </main>

@@ -28,6 +28,8 @@ interface LLMResponse {
 interface CallOptions {
   /** Ask the model for strict JSON output (both Ollama and Gemini honor it). */
   json?: boolean;
+  /** Override the configured model (used by the multi-model rating ensemble). */
+  model?: string;
 }
 
 // ─── OpenAI ────────────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ async function callOllama(
   options: CallOptions = {},
 ): Promise<LLMResponse> {
   const body: Record<string, unknown> = {
-    model: OLLAMA_MODEL,
+    model: options.model ?? OLLAMA_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -235,6 +237,88 @@ export function getLLMProvider(): string {
   return LLM_FALLBACK !== "none" && LLM_FALLBACK !== LLM_PROVIDER
     ? `${LLM_PROVIDER}+${LLM_FALLBACK}`
     : LLM_PROVIDER;
+}
+
+/**
+ * Discover which models this provider can actually serve, so callers can
+ * rate the same input with more than one model in parallel (an ensemble:
+ * faster wall-clock on a multi-model box and more accurate via averaging).
+ * With the local Ollama runtime this lists every installed model; when a
+ * hosted provider is configured there is a single effective model.
+ */
+export async function listOllamaModels(): Promise<string[]> {
+  if (LLM_PROVIDER !== "ollama") return [OLLAMA_MODEL];
+  const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+  if (!response.ok) {
+    throw new Error(`Ollama model list failed: ${response.status}`);
+  }
+  const payload = (await response.json()) as { models?: { name?: string; model?: string }[] };
+  // `model` is the modern field, `name` the legacy one — dedupe both spellings.
+  const names = new Set(
+    (payload.models ?? [])
+      .map((m) => m.model || m.name || "")
+      .filter((name) => name.length > 0),
+  );
+  const list = [...names];
+  // The configured model always participates, then the rest (cap at 3: a
+  // local box thrashes if it juggles more at once).
+  const ordered = [OLLAMA_MODEL, ...list.filter((m) => m !== OLLAMA_MODEL)];
+  return ordered.slice(0, 3);
+}
+
+// ─── Job-fit rating (the jobs-page pipeline's stage 2) ─────────────────────
+
+export interface JobFitRating {
+  /** 0-100 semantic fit of the profile to this specific job. */
+  rating: number;
+  /** One-sentence justification, capped at 160 chars. */
+  reason: string;
+}
+
+export interface JobFitRatingInput {
+  jobTitle: string;
+  jobSkills: string[];
+  jobSummary: string;
+  candidateHeadline: string;
+  candidateSummary: string;
+  candidateSkills: string[];
+  candidateYears: number | null;
+}
+
+/**
+ * Rate one job against one profile with ONE model. Deliberately tiny:
+ * compact inputs, a ~40-token JSON answer, temperature 0.2 — fast enough to
+ * fan out over a shortlist and per-model without waiting seconds per item.
+ * Throws on any unparseable answer; the caller decides multi-model policy.
+ */
+export async function rateJobFitWithLLM(
+  input: JobFitRatingInput,
+  model?: string,
+): Promise<JobFitRating> {
+  const system = `You are a strict hiring match rater. Given a candidate profile and a job, rate how well the candidate fits THIS job from 0 (irrelevant) to 100 (ideal). Judge semantic fit of skills, seniority and domain — not keyword count. Respond ONLY with compact JSON: {"rating": <0-100 integer>, "reason": "<one short sentence in Arabic>"}`;
+
+  const user = JSON.stringify({
+    job: {
+      title: input.jobTitle,
+      skills: input.jobSkills,
+      snippet: input.jobSummary.slice(0, 600),
+    },
+    candidate: {
+      headline: input.candidateHeadline.slice(0, 120),
+      summary: input.candidateSummary.slice(0, 300),
+      skills: input.candidateSkills,
+      years: input.candidateYears,
+    },
+  });
+
+  const response = await callLLM(system, user, 140, { json: true, model });
+  const parsed = extractJson(response.content) as { rating?: unknown; reason?: unknown } | null;
+  if (!parsed || typeof parsed.rating !== "number" || !Number.isFinite(parsed.rating)) {
+    throw new Error("Job-fit rating returned no usable number");
+  }
+  const rating = Math.max(0, Math.min(100, Math.round(parsed.rating)));
+  const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 160) : "";
+  return { rating, reason };
 }
 
 /**

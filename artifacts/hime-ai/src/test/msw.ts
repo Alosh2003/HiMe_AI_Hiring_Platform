@@ -61,6 +61,10 @@ const candidate = {
   preferences: { industries: ['تقنية المعلومات'], locations: ['الرياض'], contract: 'full-time', remote: true },
 };
 
+// Re-exported for per-test handler overrides (second job fixtures, etc.).
+export const jobFixture = job;
+export const companyFixture = company;
+
 const application = {
   id: TEST_IDS.application1,
   jobId: TEST_IDS.job1,
@@ -384,6 +388,21 @@ export const handlers = [
   http.get(`*/api/ai/rank/${TEST_IDS.job1}`, async () => {
     await delay(10);
     return HttpResponse.json([{ candidate: { id: candidate.id, name: 'سارة الحربي', headline: 'Product Designer' }, match: apiMatch }]);
+  }),
+  // Jobs-page ranking: the three-stage pipeline (sort → rate → order).
+  http.get('*/api/ai/jobs-ranking', async () => {
+    await delay(10);
+    return HttpResponse.json({
+      stages: {
+        sorting: { engine: 'profile-rule-engine', evaluated: 2 },
+        rating: { status: 'complete', models: ['qwen2.5:7b'], requested: 2, rated: 2 },
+        ordering: { basis: '60% AI rating + 40% profile score' },
+      },
+      jobs: [
+        { jobId: TEST_IDS.job1, profileScore: 70, aiScore: 92, finalScore: 84, modelRatings: { 'qwen2.5:7b': { rating: 92, reason: 'خبرتك مناسبة للدور.' } } },
+        { jobId: TEST_IDS.job2, profileScore: 55, aiScore: 40, finalScore: 46, modelRatings: { 'qwen2.5:7b': { rating: 40, reason: 'خبرة أقل من المطلوب.' } } },
+      ],
+    });
   }),
 
   // Admin

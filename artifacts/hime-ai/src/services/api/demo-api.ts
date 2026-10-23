@@ -182,6 +182,40 @@ export async function getJob(id: string) {
   return demoJobs.find((job) => job.id === id) || null;
 }
 
+// ─── Jobs-page ranking (sort → rate → order) ──────────────────────────────
+
+export interface JobRankingEntry {
+  jobId: string;
+  /** Stage 1 — deterministic profile rule-engine score (all jobs have it). */
+  profileScore: number;
+  /** Stage 2 — mean AI fit rating across models, or null when unrated. */
+  aiScore: number | null;
+  /** Stage 3 — the blended score the final ordering was sorted by. */
+  finalScore: number;
+  modelRatings: Record<string, { rating: number; reason: string }> | null;
+}
+
+export interface JobsRanking {
+  stages: {
+    sorting: { engine: string; evaluated: number };
+    rating: { status: 'complete' | 'partial' | 'unavailable'; models: string[]; requested: number; rated: number; error?: string };
+    ordering: { basis: string };
+  };
+  /** The server's final order — index 0 is the best-fit job. */
+  jobs: JobRankingEntry[];
+}
+
+/**
+ * The /jobs pipeline for a signed-in seeker. Returns null in demo mode — the
+ * ranking is a real-API feature and the demo personas have no CV behind them.
+ * Throws on HTTP/network failure so the page can show an honest note instead
+ * of silently falling back.
+ */
+export async function jobsRanking(): Promise<JobsRanking | null> {
+  if (!hasApi()) return null;
+  return apiRequest<JobsRanking>('/ai/jobs-ranking', { method: 'GET' });
+}
+
 // ─── Candidate ────────────────────────────────────────────────────────────
 
 /**

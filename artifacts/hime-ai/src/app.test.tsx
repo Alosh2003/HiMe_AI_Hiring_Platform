@@ -2,8 +2,11 @@ import { act, fireEvent, render, screen, waitFor, cleanup, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import App from './App';
-import { server, TEST_IDS } from '@/test/msw';
+import { server, TEST_IDS, jobFixture } from '@/test/msw';
 import { assessRedirectTarget } from '@/lib/routes';
+
+// A second job for the ranking/reorder tests (cloned from the handler's fixture).
+const jobFixture2 = { ...jobFixture, id: TEST_IDS.job2, title: 'مدير منتج — منصات الذكاء الاصطناعي' };
 
 const JOB_ID = TEST_IDS.job1;
 const CANDIDATE_ID = TEST_IDS.candidate1;
@@ -170,6 +173,77 @@ describe('public nav session header', () => {
     expect(img).toHaveStyle({ display: 'none' });
     expect(screen.getByTestId('link-nav-account')).toHaveTextContent('Te');
     expect(screen.getByTestId('link-nav-account')).toHaveTextContent('Test User');
+  });
+});
+
+// ─── Jobs page: three-stage ranking (sort → rate → order) ──────────────────
+
+describe('jobs page three-stage ranking', () => {
+  it('follows the server order, shows blended scores and a sort toggle', async () => {
+    setRole('seeker');
+    // The raw list ships job2 on top — the ranking must flip it.
+    server.use(
+      http.get('*/api/jobs', async () =>
+        HttpResponse.json({ jobs: [jobFixture2, jobFixture], pagination: { page: 1, limit: 20, total: 2, totalPages: 1, hasNext: false } })),
+    );
+    renderAt('/jobs');
+
+    // Stage-3 order: job1 (84%) before job2 (46%). The chip is the proof the
+    // ranking arrived — wait for it before touching the order.
+    expect(await screen.findByTestId(`chip-match-${JOB_ID}`)).toHaveTextContent('84%');
+    const links = screen.getAllByTestId(/^link-job-/);
+    expect(links[0].textContent).toBe('مصمم تجربة مستخدم أول');
+    expect(screen.getByTestId('group-sort-jobs')).toBeInTheDocument();
+
+    // Switching to recent drops the rank chips and restores the raw order.
+    fireEvent.click(screen.getByTestId('button-sort-recent'));
+    const recentLinks = screen.getAllByTestId(/^link-job-/);
+    expect(recentLinks[0].textContent).toBe('مدير منتج — منصات الذكاء الاصطناعي');
+    expect(screen.queryByTestId(`chip-match-${JOB_ID}`)).toBeNull();
+  });
+
+  it('keeps stage-1 ordering honestly when AI rating is unavailable', async () => {
+    setRole('seeker');
+    server.use(
+      http.get('*/api/ai/jobs-ranking', async () => HttpResponse.json({
+        stages: {
+          sorting: { engine: 'profile-rule-engine', evaluated: 2 },
+          rating: { status: 'unavailable', models: [], requested: 2, rated: 0, error: 'ollama unreachable' },
+          ordering: { basis: 'profile score' },
+        },
+        jobs: [
+          { jobId: JOB_ID, profileScore: 70, aiScore: null, finalScore: 70, modelRatings: null },
+          { jobId: TEST_IDS.job2, profileScore: 55, aiScore: null, finalScore: 55, modelRatings: null },
+        ],
+      })),
+    );
+    renderAt('/jobs');
+
+    expect(await screen.findByTestId('label-ranking-status')).toHaveTextContent('التقييم الذكي غير متاح الآن — الترتيب حسب سيرتك فقط.');
+    // The scores shown are the real profile scores, not invented AI numbers.
+    expect(await screen.findByTestId(`chip-match-${JOB_ID}`)).toHaveTextContent('70%');
+  });
+
+  it('falls back to the default order with an honest note when the ranking fails', async () => {
+    setRole('seeker');
+    server.use(
+      http.get('*/api/ai/jobs-ranking', async () => new HttpResponse(null, { status: 500 })),
+    );
+    renderAt('/jobs');
+
+    expect(await screen.findByTestId('label-ranking-status')).toHaveTextContent('تعذّر الترتيب الذكي — العرض بالترتيب الافتراضي.');
+    // Nothing called itself an assessment: no chips, no fabricated numbers.
+    expect(screen.queryByTestId(/^chip-match-/)).toBeNull();
+  });
+
+  it('keeps the plain chronological view for signed-out visitors', async () => {
+    localStorage.removeItem('hime_ai_user');
+    localStorage.removeItem('hime_ai_token');
+    renderAt('/jobs');
+
+    await screen.findByTestId('link-job-' + JOB_ID);
+    expect(screen.queryByTestId('group-sort-jobs')).toBeNull();
+    expect(screen.queryByTestId('label-ranking-status')).toBeNull();
   });
 });
 

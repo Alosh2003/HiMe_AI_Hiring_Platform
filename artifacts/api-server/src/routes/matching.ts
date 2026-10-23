@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { jobsTable, candidatesTable, jobSkillsTable, candidateSkillsTable, experiencesTable, educationTable, skillsTable, companiesTable } from "@workspace/db/schema";
 import { authMiddleware, requireRole, type AuthRequest } from "../middleware/auth";
 import { computeMatch, rankCandidates, generateExplanation, type MatchInput } from "../ai";
-import { generateMatchExplanation, parseJobAdWithLLM, coachMatchWithLLM } from "../ai/llm";
+import { generateMatchExplanation, parseJobAdWithLLM, coachMatchWithLLM, listOllamaModels, rateJobFitWithLLM, isLLMAvailable, type JobFitRating } from "../ai/llm";
 import { buildJobMatchInput, buildCandidateMatchInput, computeMatchSnapshot, persistMatchSnapshot } from "../ai/match-snapshot";
 import { aiRateLimiter } from "../middleware/rate-limiter";
 import { validateUuidParam, validateJobIdBody } from "../middleware/validate-params";
@@ -240,15 +240,12 @@ router.post("/match-coach", authMiddleware, requireRole("seeker"), validateJobId
   }
 });
 
-router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimiter, async (req: AuthRequest, res) => {
+/** Loads a seeker's profile and compiles it into the rule-engine input. */
+async function loadCandidateMatchInput(userId: string) {
   const candidate = await db.query.candidatesTable.findFirst({
-    where: eq(candidatesTable.userId, req.user!.userId),
+    where: eq(candidatesTable.userId, userId),
   });
-
-  if (!candidate) {
-    res.status(404).json({ error: "Candidate profile not found" });
-    return;
-  }
+  if (!candidate) return null;
 
   const [candidateSkills, experiences, education] = await Promise.all([
     db.query.candidateSkillsTable.findMany({
@@ -269,13 +266,25 @@ router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimi
       })
     : [];
 
-  const candidateInput = buildCandidateMatchInput({
-    ...candidate,
-    skills: candidateSkills,
-    skillRecords: candidateSkillRecords,
-    education,
-    experiences,
-  });
+  return {
+    candidate,
+    candidateInput: buildCandidateMatchInput({
+      ...candidate,
+      skills: candidateSkills,
+      skillRecords: candidateSkillRecords,
+      education,
+      experiences,
+    }),
+  };
+}
+
+router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimiter, async (req: AuthRequest, res) => {
+  const loaded = await loadCandidateMatchInput(req.user!.userId);
+  if (!loaded) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+  const { candidate, candidateInput } = loaded;
 
   const activeJobs = await db.query.jobsTable.findMany({
     where: eq(jobsTable.status, "active"),
@@ -324,6 +333,174 @@ router.get("/recommendations", authMiddleware, requireRole("seeker"), aiRateLimi
     .slice(0, 10);
 
   res.json(matches);
+});
+
+// ─── Jobs-page ranking: sort → rate → order ────────────────────────────────
+
+/**
+ * The seeker's jobs page pipeline, built as three explicit stages instead of
+ * a single opaque score:
+ *
+ *   1. Sorting  — the deterministic profile rule engine pre-ranks EVERY
+ *      active job from the stored CV/profile (no LLM, instant).
+ *   2. Rating   — only the top shortlist goes to the LLM fit raters. Every
+ *      model installed on the runtime is asked in parallel and the answers
+ *      are averaged, so pulling a second model makes this faster AND more
+ *      accurate with zero code changes.
+ *   3. Ordering — final placement blends the AI rating with the profile
+ *      score so one model's whim can't bury a strong profile match.
+ *
+ * Jobs that never got an AI rating (past the shortlist, or when rating is
+ * unavailable) keep their profile score — nothing is invented.
+ */
+const RANKING_SHORTLIST = 10;
+const RANKING_AI_WEIGHT = 0.6;
+const RANKING_PROFILE_WEIGHT = 0.4;
+
+router.get("/jobs-ranking", authMiddleware, requireRole("seeker"), aiRateLimiter, async (req: AuthRequest, res) => {
+  const loaded = await loadCandidateMatchInput(req.user!.userId);
+  if (!loaded) {
+    res.status(404).json({ error: "Candidate profile not found" });
+    return;
+  }
+  const { candidate, candidateInput } = loaded;
+
+  const activeJobs = await db.query.jobsTable.findMany({
+    where: eq(jobsTable.status, "active"),
+  });
+
+  // ── Stage 1 — Sorting (rule engine over every active job) ──
+  const stage1 = (
+    await Promise.all(
+      activeJobs.map(async (job) => {
+        const skills = await db.query.jobSkillsTable.findMany({
+          where: eq(jobSkillsTable.jobId, job.id),
+        });
+        const sIds = skills.map((s) => s.skillId);
+        const sRecords = sIds.length > 0
+          ? await db.query.skillsTable.findMany({
+              where: inArray(skillsTable.id, sIds),
+            })
+          : [];
+        return { job, jobSkills: skills, skillRecords: sRecords };
+      }),
+    )
+  )
+    .map(({ job, jobSkills, skillRecords }) => {
+      const jobInput = buildJobMatchInput(job, jobSkills, skillRecords);
+      return {
+        jobId: job.id,
+        job,
+        jobInput,
+        jobSkills,
+        skillRecords,
+        profileScore: computeMatch({ job: jobInput, candidate: candidateInput }).overallScore,
+      };
+    })
+    .sort((a, b) => b.profileScore - a.profileScore);
+
+  const shortlist = stage1.slice(0, RANKING_SHORTLIST);
+
+  // ── Stage 2 — Rating (LLM ensemble over the shortlist, all in parallel) ──
+  let models: string[] = [];
+  let ratingStatus: "complete" | "partial" | "unavailable" = "complete";
+  let ratingError: string | undefined;
+  if (!isLLMAvailable()) {
+    ratingStatus = "unavailable";
+  } else {
+    try {
+      models = await listOllamaModels();
+    } catch (err) {
+      ratingStatus = "unavailable";
+      ratingError = err instanceof Error ? err.message : String(err);
+      logger.warn({ err }, "jobs-ranking: model discovery failed");
+    }
+  }
+
+  const ratingsByJob = new Map<string, { aiScore: number; modelRatings: Map<string, { rating: number; reason: string }> }>();
+  if (ratingStatus !== "unavailable" && shortlist.length > 0) {
+    type FitOutcome = { jobId: string; model: string; ok: true; result: JobFitRating } | { jobId: string; model: string; ok: false };
+    const pairs = shortlist.flatMap((entry) =>
+      models.map((model) => ({ entry, model })),
+    );
+    const ratings: FitOutcome[] = await Promise.all(
+      pairs.map(async ({ entry, model }) => {
+        try {
+          const result = await rateJobFitWithLLM(
+            {
+              jobTitle: entry.job.title,
+              jobSkills: [
+                ...entry.jobInput.requiredSkills.map((s) => s.name),
+                ...entry.jobInput.preferredSkills.map((s) => s.name),
+              ],
+              jobSummary: entry.jobInput.description,
+              candidateHeadline: candidateInput.headline,
+              candidateSummary: candidateInput.summary,
+              candidateSkills: candidateInput.skills.map((s) => s.name),
+              candidateYears: candidateInput.yearsExperience ?? null,
+            },
+            model,
+          );
+          return { jobId: entry.jobId, model, ok: true as const, result };
+        } catch (err) {
+          logger.warn({ err, model, jobId: entry.jobId }, "jobs-ranking: fit rating failed");
+          return { jobId: entry.jobId, model, ok: false as const };
+        }
+      }),
+    );
+
+    for (const entry of shortlist) {
+      const ok = ratings.filter((r): r is Extract<FitOutcome, { ok: true }> => r.jobId === entry.jobId && r.ok);
+      if (ok.length === 0) continue;
+      const modelRatings = new Map(ok.map((r) => [r.model, { rating: r.result.rating, reason: r.result.reason }]));
+      const aiScore = Math.round(
+        [...modelRatings.values()].reduce((sum, r) => sum + r.rating, 0) / modelRatings.size,
+      );
+      ratingsByJob.set(entry.jobId, { aiScore, modelRatings });
+    }
+
+    if (ratingsByJob.size === 0) {
+      ratingStatus = "unavailable";
+      ratingError = "every fit-rating call failed";
+    } else if (ratingsByJob.size < shortlist.length) {
+      ratingStatus = "partial";
+    }
+  }
+
+  // ── Stage 3 — Ordering (AI rating leads, profile score anchors) ──
+  const jobs = stage1
+    .map((entry) => {
+      const rating = ratingsByJob.get(entry.jobId) ?? null;
+      const aiScore = rating ? rating.aiScore : null;
+      const finalScore = aiScore === null
+        ? entry.profileScore
+        : Math.round(RANKING_AI_WEIGHT * aiScore + RANKING_PROFILE_WEIGHT * entry.profileScore);
+      return {
+        jobId: entry.jobId,
+        profileScore: entry.profileScore,
+        aiScore,
+        finalScore,
+        modelRatings: rating ? Object.fromEntries(rating.modelRatings) : null,
+      };
+    })
+    .sort((a, b) => b.finalScore - a.finalScore);
+
+  res.json({
+    stages: {
+      sorting: { engine: "profile-rule-engine", evaluated: stage1.length },
+      rating: {
+        status: ratingStatus,
+        models,
+        requested: shortlist.length,
+        rated: ratingsByJob.size,
+        ...(ratingError ? { error: ratingError } : {}),
+      },
+      ordering: {
+        basis: `${Math.round(RANKING_AI_WEIGHT * 100)}% AI rating + ${Math.round(RANKING_PROFILE_WEIGHT * 100)}% profile score`,
+      },
+    },
+    jobs,
+  });
 });
 
 export default router;
