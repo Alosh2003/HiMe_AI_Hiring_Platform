@@ -65,7 +65,14 @@ function FieldWithError({ label, value, onChange, type = 'text', placeholder, er
 
 export function LoginPage() {
   const { t } = useLanguage();
-  const { login: performLogin } = useAuth();
+  // An authenticated user landing here has nothing to log in to — bounce them
+  // straight to their dashboard (or the captured ?next= destination).
+  const { token, user, login: performLogin } = useAuth();
+  useEffect(() => {
+    if (!token) return;
+    const next = readNextParam(window.location.search);
+    navigate(next || `/${user?.role ?? 'seeker'}/dashboard`, { replace: true });
+  }, [token, user?.role]);
   const [, navigate] = useLocation();
   // Capture ?next= before the router rewrites the query string.
   const [nextParam] = useState(() => readNextParam(window.location.search));
@@ -190,8 +197,14 @@ export function LoginPage() {
 }
 
 export function RegisterPage() {
-  const { register: performRegister } = useAuth();
+  // An authenticated user has no reason to see the register form.
+  const { token, user } = useAuth();
   const [, navigate] = useLocation();
+  useEffect(() => {
+    if (!token) return;
+    navigate(`/${user?.role ?? 'seeker'}/dashboard`, { replace: true });
+  }, [token, user?.role]);
+  const { register: performRegister } = useAuth();
   const initialRole = new URLSearchParams(window.location.search).get('role') === 'company' ? 'company' : 'seeker';
   const [values, setValues] = useState({ name: '', email: '', password: '', role: initialRole as 'seeker' | 'company', termsAccepted: false });
   const [errors, setErrors] = useState<ReturnType<typeof validateRegistration>>({});

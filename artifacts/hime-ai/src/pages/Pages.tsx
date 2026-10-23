@@ -433,7 +433,7 @@ function RecommendationCard({ match }: { match: MatchResult }) {
 
   return (
     <Card>
-      <CardContent className="grid gap-6 p-6 md:grid-cols-[180px_1fr_1fr] md:items-center">
+      <CardContent className="grid gap-6 p-6 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)] md:items-center">
         <div className="flex items-center gap-4 md:block">
           <ScoreRing score={match.score} />
           <div className="md:mt-3">
